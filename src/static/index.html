@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Telecom Contact Center Conversation Intelligence</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <!-- Top Navigation Bar -->
+  <header>
+    <div class="brand">
+      <div class="brand-icon">⚡</div>
+      <div class="brand-text">
+        <h1>Telecom Conversation Intelligence</h1>
+        <p>100% Automated QA, Live Agent Assist & Supervisor Analytics</p>
+      </div>
+    </div>
+
+    <nav class="nav-tabs">
+      <button class="nav-btn active" data-tab="tab-live" id="navLiveBtn">
+        🔴 Live Assist Stream
+      </button>
+      <button class="nav-btn" data-tab="tab-batch" id="navBatchBtn">
+        📊 Post-Call & Grounded QA
+      </button>
+      <button class="nav-btn" data-tab="tab-rollups" id="navRollupsBtn">
+        👥 Supervisor Team Rollups
+      </button>
+      <button class="nav-btn" data-tab="tab-health" id="navHealthBtn">
+        📈 System Health & Evals
+      </button>
+    </nav>
+
+    <div class="header-status">
+      <div class="status-dot"></div>
+      <span>Service Healthy • 100% Grounded</span>
+    </div>
+  </header>
+
+  <!-- Main Body Content -->
+  <main>
+
+    <!-- Global Conversation Selector -->
+    <div class="selector-bar">
+      <label for="convSelect" style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary);">Select Call from Telecom Corpus:</label>
+      <select id="convSelect" class="select-input" onchange="selectConversation()">
+        <option value="">Loading corpus conversations...</option>
+      </select>
+      <button class="btn btn-secondary" onclick="loadSampleList()">🔄 Refresh Corpus</button>
+    </div>
+
+    <!-- TAB 1: Live Assist Stream Simulator -->
+    <section id="tab-live" class="tab-pane active">
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+          <div>
+            <h2 style="font-size: 1.1rem; font-weight: 700;">Live Turn-by-Turn Assist Stream</h2>
+            <p style="font-size: 0.8rem; color: var(--text-muted);">
+              Streams conversation turn-by-turn with sub-300ms latency, delivering real-time sentiment tracking, next best action scripts, and instant compliance alerts.
+            </p>
+          </div>
+          <div style="display: flex; gap: 0.75rem;">
+            <button id="stepTurnBtn" class="btn" onclick="stepNextTurn()">▶️ Step Next Turn</button>
+            <button id="playCallBtn" class="btn btn-secondary" onclick="playLiveCall()">⏩ Play Live Call</button>
+            <button class="btn btn-secondary" onclick="resetLiveSimulator()">⏹️ Reset</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="simulator-layout">
+        <!-- Live Chat Bubble Stream -->
+        <div class="card">
+          <div class="card-title">
+            <span>Live Audio Transcript Feed</span>
+            <span class="badge badge-indigo">Real-Time Ingestion</span>
+          </div>
+          <div id="liveChatBox" class="chat-box"></div>
+        </div>
+
+        <!-- Live Agent Copilot Panel -->
+        <div class="live-stream-panel">
+          <!-- Real-Time Sentiment & Trend -->
+          <div class="card">
+            <div class="card-title">
+              <span>Customer Sentiment Arc</span>
+              <span id="liveSentimentTrend" class="badge badge-cyan">STABLE</span>
+            </div>
+            <div class="sentiment-meter">
+              <span style="font-size: 0.85rem; color: var(--text-secondary);">Current Turn Polarity:</span>
+              <div id="liveSentimentLabel" class="meter-val">
+                <span class="badge badge-indigo">Neutral (0.0)</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Real-time Compliance Violation Banners -->
+          <div id="liveAlertsBox" style="display: flex; flex-direction: column; gap: 0.6rem;"></div>
+
+          <!-- Real-time Recommended Next Best Actions -->
+          <div class="card" style="flex: 1;">
+            <div class="card-title">
+              <span>Live Next Best Actions (NBA)</span>
+              <span class="badge badge-emerald">Active Guidance</span>
+            </div>
+            <div id="liveActionsBox" style="display: flex; flex-direction: column; gap: 0.8rem;"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: Post-Call & Grounded QA -->
+    <section id="tab-batch" class="tab-pane">
+      <!-- High Level KPIs -->
+      <div class="kpi-row">
+        <div class="kpi-card">
+          <span class="kpi-label">Agent QA Score</span>
+          <span id="kpiScore" class="kpi-value">--/100</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Call Resolution</span>
+          <div style="margin-top: 0.4rem;">
+            <span id="kpiResolution" class="badge badge-emerald" style="font-size: 1rem; padding: 0.4rem 0.8rem;">RESOLVED</span>
+          </div>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Churn Risk Level</span>
+          <div style="margin-top: 0.4rem;">
+            <span id="kpiChurn" class="badge badge-rose" style="font-size: 1rem; padding: 0.4rem 0.8rem;">HIGH</span>
+          </div>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Sentiment Shift</span>
+          <span id="kpiArc" style="font-size: 0.9rem; font-weight: 700; margin-top: 0.5rem; color: #cbd5e1;">--</span>
+        </div>
+      </div>
+
+      <!-- Concise Executive Summary -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-title">
+          <span>Executive Summary & Customer Intent</span>
+          <span class="badge badge-indigo">Auto-Generated</span>
+        </div>
+        <p id="kpiSummary" style="font-size: 0.92rem; color: #e2e8f0; line-height: 1.6;"></p>
+      </div>
+
+      <!-- Main Review Split Layout -->
+      <div class="analytics-grid">
+        <!-- Grounded QA Scorecard -->
+        <div class="card">
+          <div class="card-title">
+            <span>Configurable QA Checklist Scorecard</span>
+            <span class="badge badge-emerald">100% Grounded Quotes</span>
+          </div>
+          <p style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 1rem;">
+            Click on any checklist item to highlight the corresponding verbatim quoted turn in the transcript.
+          </p>
+          <div id="qaDetailsContainer"></div>
+        </div>
+
+        <!-- Transcript & Root Cause Sidebar -->
+        <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+          <!-- Multi-Label Reasons -->
+          <div class="card">
+            <div class="card-title">
+              <span>Multi-Label Call Reasons</span>
+              <span class="badge badge-indigo">Root Cause</span>
+            </div>
+            <div id="reasonsContainer"></div>
+          </div>
+
+          <!-- Follow-up Actions -->
+          <div class="card">
+            <div class="card-title">
+              <span>Post-Call Follow-Up Actions</span>
+              <span class="badge badge-cyan">Automated Workflow</span>
+            </div>
+            <ul id="followUpsContainer" style="padding-left: 1.2rem; color: #e2e8f0;"></ul>
+          </div>
+
+          <!-- Interactive Verbatim Transcript View -->
+          <div class="card">
+            <div class="card-title">
+              <span>Verbatim Call Transcript</span>
+              <span class="badge badge-indigo">Audit Record</span>
+            </div>
+            <div id="batchChatBox" class="chat-box" style="height: 380px;"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: Supervisor Team Rollups -->
+    <section id="tab-rollups" class="tab-pane">
+      <div class="selector-bar">
+        <label for="teamSelect" style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary);">Select Supervisor Team / Queue:</label>
+        <select id="teamSelect" class="select-input" onchange="loadTeamRollup()"></select>
+        <button class="btn btn-secondary" onclick="loadTeamRollup()">🔄 Refresh Rollup</button>
+      </div>
+
+      <!-- Team Overview KPIs -->
+      <div class="kpi-row">
+        <div class="kpi-card">
+          <span class="kpi-label">Total Calls Analyzed</span>
+          <span id="teamCallsCount" class="kpi-value">0</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Team Average QA Score</span>
+          <span id="teamAvgScore" class="kpi-value" style="color: var(--accent-emerald);">0.0%</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Compliance Pass Rate</span>
+          <span id="teamComplianceRate" class="kpi-value">0.0%</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Churn Containment Rate</span>
+          <span id="teamContainmentRate" class="kpi-value" style="color: var(--accent-cyan);">0.0%</span>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem;">
+        <!-- Agent Leaderboard -->
+        <div class="card">
+          <div class="card-title">
+            <span>Agent Performance Leaderboard</span>
+            <span class="badge badge-indigo">100% Coverage</span>
+          </div>
+          <table class="leaderboard-table">
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Agent</th>
+                <th>Calls</th>
+                <th>Avg QA</th>
+                <th>Pass Rate</th>
+                <th>Violations</th>
+                <th>Personalized Coaching Action</th>
+              </tr>
+            </thead>
+            <tbody id="leaderboardBody"></tbody>
+          </table>
+        </div>
+
+        <!-- QA Item Breakdown Progress Bars -->
+        <div class="card">
+          <div class="card-title">
+            <span>QA Checklist Performance Breakdown</span>
+            <span class="badge badge-cyan">Team Adherence</span>
+          </div>
+          <div id="qaBreakdownBars" style="margin-top: 1rem;"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: System Health & Evals -->
+    <section id="tab-health" class="tab-pane">
+      <div class="kpi-row">
+        <div class="kpi-card">
+          <span class="kpi-label">Service Health</span>
+          <span id="healthStatus" class="kpi-value" style="color: var(--accent-emerald); font-size: 1.4rem;">HEALTHY</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">System Uptime</span>
+          <span id="healthUptime" class="kpi-value" style="font-size: 1.4rem;">0s</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Batch Processed</span>
+          <span id="healthBatchCalls" class="kpi-value" style="font-size: 1.4rem;">0</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Stream Turns Processed</span>
+          <span id="healthStreamTurns" class="kpi-value" style="font-size: 1.4rem;">0</span>
+        </div>
+      </div>
+
+      <div class="kpi-row">
+        <div class="kpi-card">
+          <span class="kpi-label">Avg Batch Latency</span>
+          <span id="healthBatchLat" class="kpi-value" style="font-size: 1.4rem; color: var(--accent-cyan);">0 ms</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Avg Stream Latency</span>
+          <span id="healthStreamLat" class="kpi-value" style="font-size: 1.4rem; color: var(--accent-indigo);">0 ms</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Groundedness Rate</span>
+          <span id="healthGroundedness" class="kpi-value" style="font-size: 1.4rem; color: var(--accent-emerald);">100%</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Compliance Violation Rate</span>
+          <span id="healthViolations" class="kpi-value" style="font-size: 1.4rem; color: var(--accent-rose);">0%</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">
+          <span>Prometheus Metrics Export (`/metrics`)</span>
+          <button class="btn btn-secondary" onclick="refreshHealthMetrics()">🔄 Refresh</button>
+        </div>
+        <pre id="prometheusPreview" style="background: rgba(0,0,0,0.5); padding: 1.2rem; border-radius: var(--radius-sm); font-size: 0.82rem; color: #a5f3fc; overflow-x: auto; font-family: monospace;"></pre>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
