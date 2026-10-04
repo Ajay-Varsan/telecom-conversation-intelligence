@@ -24,14 +24,24 @@ class LiveAssistEngine:
         history = input_data.history or []
         all_turns = history + [current]
 
-        # 1. Turn Sentiment & Running Trend
+        # 1. Turn Sentiment & Speaker-Aware Customer Mood
         turn_sentiment = self.sentiment_analyzer.score_turn_text(current.text)
         sentiment_label = self.sentiment_analyzer.get_label(turn_sentiment)
 
-        # Calculate running sentiment trend
+        # Separate Customer's sentiment so Agent's turns do not overwrite Customer Mood
+        client_turns = [t for t in all_turns if t.speaker == Speaker.CLIENT]
+        if client_turns:
+            latest_client_turn = client_turns[-1]
+            customer_sentiment = self.sentiment_analyzer.score_turn_text(latest_client_turn.text)
+            customer_sentiment_label = self.sentiment_analyzer.get_label(customer_sentiment)
+        else:
+            customer_sentiment = 0.0
+            customer_sentiment_label = "neutral"
+
+        # Calculate running sentiment trend strictly across customer turns
         client_sentiments = [
             self.sentiment_analyzer.score_turn_text(t.text)
-            for t in all_turns if t.speaker == Speaker.CLIENT
+            for t in client_turns
         ]
 
         if len(client_sentiments) >= 2:
@@ -45,14 +55,14 @@ class LiveAssistEngine:
         else:
             trend = "stable"
 
-        # 2. Live Compliance Checks
+        # 2. Live Compliance Checks & Next Best Actions
         compliance_alerts: List[str] = []
         recommended_actions: List[LiveActionRecommendation] = []
 
         curr_text = current.text.lower()
         full_text = " ".join(t.text for t in all_turns).lower()
 
-        # If agent made a prohibited promise:
+        # If agent spoke:
         if current.speaker == Speaker.AGENT:
             if ("it's on us" in curr_text or "brand new iphone" in curr_text) and "credit" not in curr_text:
                 compliance_alerts.append(
@@ -89,7 +99,7 @@ class LiveAssistEngine:
                         title="Execute Identity Authentication (CPNI)",
                         recommended_script="I understand your request and will be glad to assist. First, for your account security, could you please verify your account PIN or the last 4 digits of your card?",
                         urgency="critical",
-                        trigger_reason="Customer requested account change before mandatory CPNI verification."
+                        trigger_reason="Federal CPNI Requirement: Identity verification must precede account cancellation."
                     ))
                 else:
                     recommended_actions.append(LiveActionRecommendation(
@@ -100,18 +110,18 @@ class LiveAssistEngine:
                         trigger_reason="Customer expressed cost dissatisfaction; retention opportunity available."
                     ))
 
-            # Client expresses service/coverage dissatisfaction
-            if "dropped calls" in curr_text or "poor reception" in curr_text or "spotty" in curr_text or "slow data" in curr_text:
+            # Client expresses service, coverage, or signal dissatisfaction
+            if any(k in curr_text for k in ["coverage", "signal", "dropped call", "poor reception", "spotty", "slow data", "connectivity", "no service", "trouble getting"]):
                 recommended_actions.append(LiveActionRecommendation(
                     action_type="EMPATHY_AND_DIAGNOSTICS",
                     title="Acknowledge Frustration & Gather Device/Location",
-                    recommended_script="I am very sorry for the frustration with dropped calls and connectivity. Could you confirm your device model and the cross-streets or zip code where you experience this?",
+                    recommended_script="I am very sorry for the frustration with coverage and signal issues. Could you confirm your device model and the cross-streets or zip code where you experience this?",
                     urgency="high",
-                    trigger_reason="Customer reported persistent network degradation."
+                    trigger_reason="Customer reported persistent network degradation or coverage problems."
                 ))
 
-            # Client frustrated / emotion tag
-            if "(frustrated)" in curr_text or "ridiculous" in curr_text or "can't believe" in curr_text:
+            # Client frustrated / de-escalation
+            if any(k in curr_text for k in ["frustrat", "ridiculous", "can't believe", "unacceptable", "terrible", "awful", "angry"]):
                 recommended_actions.append(LiveActionRecommendation(
                     action_type="DE_ESCALATION",
                     title="De-escalation & Active Listening",
@@ -147,7 +157,7 @@ class LiveAssistEngine:
                 title="Active Listening & Professional Engagement",
                 recommended_script="I see. Please continue, and I will be glad to help resolve this for you.",
                 urgency="low",
-                trigger_reason="Standard conversation flow."
+                trigger_reason="Standard conversational flow (no urgent compliance or retention trigger)."
             ))
 
         latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
@@ -155,8 +165,11 @@ class LiveAssistEngine:
         return LiveAssistResponse(
             conversation_id=input_data.conversation_id,
             turn_id=current.turn_id,
+            turn_speaker=current.speaker,
             turn_sentiment=turn_sentiment,
             sentiment_label=sentiment_label,
+            customer_sentiment=customer_sentiment,
+            customer_sentiment_label=customer_sentiment_label,
             running_sentiment_trend=trend,
             compliance_alerts=compliance_alerts,
             recommended_actions=recommended_actions,

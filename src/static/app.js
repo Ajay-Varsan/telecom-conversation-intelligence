@@ -111,14 +111,30 @@ async function stepNextTurn() {
     });
     const liveData = await res.json();
 
-    // Update sentiment meters
-    const scoreText = liveData.turn_sentiment > 0 ? `+${liveData.turn_sentiment}` : `${liveData.turn_sentiment}`;
+    // Update sentiment meters with speaker awareness
+    const custScore = liveData.customer_sentiment !== undefined ? liveData.customer_sentiment : liveData.turn_sentiment;
+    const custLabel = liveData.customer_sentiment_label || liveData.sentiment_label;
+    const custScoreText = custScore > 0 ? `+${custScore}` : `${custScore}`;
+    const custBadgeClass = custLabel === 'positive' ? 'badge-emerald' : custLabel === 'negative' ? 'badge-rose' : 'badge-indigo';
+
+    const speakerLabel = liveData.turn_speaker === 'agent' ? 'Agent' : 'Customer';
+    const turnScoreText = liveData.turn_sentiment > 0 ? `+${liveData.turn_sentiment}` : `${liveData.turn_sentiment}`;
+
     document.getElementById("liveSentimentLabel").innerHTML = `
-      <span class="badge ${liveData.sentiment_label === 'positive' ? 'badge-emerald' : liveData.sentiment_label === 'negative' ? 'badge-rose' : 'badge-indigo'}">
-        ${liveData.sentiment_label.toUpperCase()} (${scoreText})
-      </span>
+      <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem;">
+        <span class="badge ${custBadgeClass}" style="font-size: 0.85rem; padding: 0.3rem 0.7rem;">
+          Customer: ${custLabel.toUpperCase()} (${custScoreText})
+        </span>
+        <span style="font-size: 0.72rem; color: var(--text-muted);">
+          Latest Turn #${liveData.turn_id} by ${speakerLabel}: ${liveData.sentiment_label} (${turnScoreText})
+        </span>
+      </div>
     `;
-    document.getElementById("liveSentimentTrend").textContent = liveData.running_sentiment_trend.toUpperCase();
+
+    // Trend badge
+    const trendBadge = document.getElementById("liveSentimentTrend");
+    trendBadge.textContent = `TREND: ${liveData.running_sentiment_trend.toUpperCase()}`;
+    trendBadge.className = `badge ${liveData.running_sentiment_trend === 'improving' ? 'badge-emerald' : liveData.running_sentiment_trend === 'deteriorating' ? 'badge-rose' : 'badge-cyan'}`;
 
     // Render compliance alerts
     const alertsBox = document.getElementById("liveAlertsBox");
@@ -136,18 +152,26 @@ async function stepNextTurn() {
     const actionsBox = document.getElementById("liveActionsBox");
     actionsBox.innerHTML = "";
     if (liveData.recommended_actions && liveData.recommended_actions.length > 0) {
+      const urgencyLabels = {
+        critical: "URGENCY: CRITICAL (LEGAL COMPLIANCE)",
+        high: "URGENCY: HIGH (ACTION REQUIRED)",
+        medium: "URGENCY: MEDIUM (PROACTIVE)",
+        low: "PRIORITY: LOW (STANDARD CONVERSATION)"
+      };
+
       liveData.recommended_actions.forEach(action => {
+        const urgencyText = urgencyLabels[action.urgency] || `URGENCY: ${action.urgency.toUpperCase()}`;
         const card = document.createElement("div");
         card.className = `action-card ${action.urgency}`;
         card.innerHTML = `
           <div class="action-header">
             <span class="action-title">${action.title}</span>
             <span class="badge ${action.urgency === 'critical' ? 'badge-rose' : action.urgency === 'high' ? 'badge-amber' : 'badge-indigo'}">
-              ${action.urgency.toUpperCase()}
+              ${urgencyText}
             </span>
           </div>
-          <div style="font-size: 0.78rem; color: var(--text-muted);">${action.trigger_reason}</div>
-          <div class="script-box">"${action.recommended_script}"</div>
+          <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.2rem;">${action.trigger_reason}</div>
+          <div class="script-box" style="margin-top: 0.4rem;">"${action.recommended_script}"</div>
         `;
         actionsBox.appendChild(card);
       });

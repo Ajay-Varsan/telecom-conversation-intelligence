@@ -3,30 +3,40 @@ from typing import List, Tuple
 from src.models.schemas import Turn, SentimentArc, Speaker
 
 TELECOM_POSITIVE_TERMS = {
-    "thank you": 0.8, "thanks": 0.7, "great": 0.85, "glad": 0.75, "appreciate": 0.8,
-    "helpful": 0.75, "wonderful": 0.9, "excellent": 0.9, "perfect": 0.9, "sounds good": 0.75,
-    "sounds easy": 0.7, "take the offer": 0.65, "resolved": 0.8, "satisfied": 0.85,
-    "good": 0.5, "better": 0.5, "happy": 0.8, "pleasure": 0.7
+    "thank you": 0.85, "thanks": 0.75, "great": 0.85, "glad": 0.75, "appreciate": 0.8,
+    "helpful": 0.75, "wonderful": 0.9, "excellent": 0.9, "perfect": 0.9, "sounds good": 0.8,
+    "sounds easy": 0.75, "take the offer": 0.75, "resolved": 0.8, "satisfied": 0.85,
+    "good": 0.45, "better": 0.5, "happy": 0.8, "pleasure": 0.7
 }
 
 TELECOM_NEGATIVE_TERMS = {
-    "cancel": -0.6, "frustrated": -0.85, "ridiculous": -0.9, "expensive": -0.6,
-    "dropped calls": -0.8, "poor reception": -0.8, "slow data": -0.7, "spotty": -0.65,
-    "unreliable": -0.85, "terrible": -0.9, "awful": -0.9, "horrible": -0.95,
-    "not working": -0.75, "unable": -0.4, "complaint": -0.8, "angry": -0.9,
-    "switch to": -0.6, "rip off": -0.95, "worst": -0.9, "disappointed": -0.75,
-    "hate": -0.9, "unacceptable": -0.85, "disconnect": -0.5, "useless": -0.85
+    "cancel": -0.7, "frustrat": -0.85, "ridiculous": -0.9, "expensive": -0.65,
+    "dropped call": -0.85, "poor reception": -0.85, "slow data": -0.7, "spotty": -0.7,
+    "unreliable": -0.85, "terrible": -0.95, "awful": -0.95, "horrible": -0.95,
+    "not working": -0.8, "unable": -0.5, "complaint": -0.8, "angry": -0.9,
+    "switch to": -0.65, "rip off": -0.95, "worst": -0.95, "disappointed": -0.8,
+    "hate": -0.9, "unacceptable": -0.85, "disconnect": -0.6, "useless": -0.85,
+    "trouble": -0.7, "problem": -0.6, "issue": -0.5, "poor": -0.7, "bad": -0.7,
+    "no coverage": -0.85, "no signal": -0.85, "signal problem": -0.8
+}
+
+NEGATION_TOKENS = {
+    "not", "dont", "don't", "doesnt", "doesn't", "didnt", "didn't",
+    "cant", "can't", "cannot", "no", "never", "hardly", "barely",
+    "unable", "without", "lacks", "lacking", "trouble"
 }
 
 
 class SentimentAnalyzer:
-    """Production-grade sentiment analysis for telecom contact centers."""
+    """Production-grade sentiment analysis for telecom contact centers with negation awareness."""
 
     def score_turn_text(self, text: str) -> float:
         if not text:
             return 0.0
         lower = text.lower()
-        
+        clean = re.sub(r"[^a-z0-9\s\']", " ", lower)
+        tokens = clean.split()
+
         # Check explicit emotion tag in synthetic transcripts e.g. "(frustrated)"
         base_bias = 0.0
         if "(frustrated)" in lower or "(angry)" in lower:
@@ -37,13 +47,25 @@ class SentimentAnalyzer:
         pos_score = 0.0
         neg_score = 0.0
 
-        for phrase, weight in TELECOM_POSITIVE_TERMS.items():
-            if phrase in lower:
-                pos_score += weight
-
+        # 1. Negative terms scanning
         for phrase, weight in TELECOM_NEGATIVE_TERMS.items():
             if phrase in lower:
                 neg_score += abs(weight)
+
+        # 2. Positive terms scanning with negation window check
+        for phrase, weight in TELECOM_POSITIVE_TERMS.items():
+            p_tokens = phrase.split()
+            p_len = len(p_tokens)
+            for i in range(len(tokens) - p_len + 1):
+                if tokens[i:i + p_len] == p_tokens:
+                    # Check 3 preceding words for negation (e.g. "not getting good", "don't have good", "not happy")
+                    window_start = max(0, i - 3)
+                    preceding = tokens[window_start:i]
+                    if any(neg in preceding for neg in NEGATION_TOKENS):
+                        # Negated positive term flips to strong negative!
+                        neg_score += abs(weight) * 1.3
+                    else:
+                        pos_score += weight
 
         total = pos_score + neg_score
         if total == 0:

@@ -44,8 +44,11 @@ class LiveActionRecommendation(BaseModel):
 class LiveAssistResponse(BaseModel):
     conversation_id: str
     turn_id: int
+    turn_speaker: Speaker = Speaker.CLIENT
     turn_sentiment: float
     sentiment_label: str
+    customer_sentiment: float = 0.0
+    customer_sentiment_label: str = "neutral"
     running_sentiment_trend: str
     compliance_alerts: List[str] = Field(default_factory=list)
     recommended_actions: List[LiveActionRecommendation] = Field(default_factory=list)
