@@ -62,9 +62,41 @@ class LiveAssistEngine:
 
         curr_text = current.text.lower()
         full_text = " ".join(t.text for t in all_turns).lower()
+        is_cancellation_active = (state.primary_intent == "CANCELLATION" or state.cancellation_confirmed or "cancel" in full_text)
 
         # If agent spoke:
         if current.speaker == Speaker.AGENT:
+            # Check A: Federal CPNI Identity Verification Gatekeeper
+            agent_is_authenticating = any(k in curr_text for k in ["pin", "verify", "verification", "social security", "last 4", "billing address", "security question", "card on file"])
+            agent_is_actively_cancelling = any(k in curr_text for k in [
+                "assist you with the cancellation", "process the cancellation", "processing the cancellation",
+                "no longer be able to use", "canceling your service will mean", "cancel your account",
+                "placed a request to cancel", "confirm your cancellation", "proceed with the cancellation",
+                "before we proceed, i just want to make sure"
+            ])
+
+            if is_cancellation_active and not state.is_authenticated:
+                if agent_is_actively_cancelling and not agent_is_authenticating:
+                    compliance_alerts.append(
+                        "CRITICAL COMPLIANCE VIOLATION: Agent is executing cancellation workflow without authenticating caller identity (Federal CPNI breach)."
+                    )
+                    recommended_actions.append(LiveActionRecommendation(
+                        action_type="CRITICAL_AUTHENTICATION_INTERVENTION",
+                        title="HALT: Mandatory CPNI Authentication Required",
+                        recommended_script="HALT: Federal regulations require customer authentication before processing cancellation or altering accounts. Say: 'Before we can proceed, for your account security, could you please verify your account PIN or the last 4 digits of your card on file?'",
+                        urgency="critical",
+                        trigger_reason="Agent initiated cancellation procedure without verified caller identity."
+                    ))
+                elif not agent_is_authenticating:
+                    recommended_actions.append(LiveActionRecommendation(
+                        action_type="VERIFICATION_REQUIRED",
+                        title="Execute Identity Authentication (CPNI)",
+                        recommended_script="Customer has requested cancellation. You must verify identity before taking any account actions: 'I can certainly help you with that. First, for your account security, could you please verify your account PIN or the last 4 digits of your card?'",
+                        urgency="critical",
+                        trigger_reason="Federal CPNI Requirement: Identity verification must precede account cancellation."
+                    ))
+
+            # Check B: Unauthorized hardware promises
             if ("it's on us" in curr_text or "brand new iphone" in curr_text) and "credit" not in curr_text:
                 compliance_alerts.append(
                     "COMPLIANCE VIOLATION: Unauthorized 'free' device promise without mandatory installment agreement disclosure."
@@ -77,7 +109,8 @@ class LiveAssistEngine:
                     trigger_reason="Agent offered free hardware without qualifying disclosures."
                 ))
 
-            if "cancel your service" in curr_text and "fee" not in full_text and "balance" not in full_text:
+            # Check C: Cancellation without mandatory fee / equipment return disclosure
+            if any(k in curr_text for k in ["cancel your service", "canceling your service", "canceled your service", "cancellation process", "process the cancellation"]) and "considering" not in curr_text and "fee" not in full_text and "return" not in full_text and "balance" not in full_text:
                 compliance_alerts.append(
                     "COMPLIANCE WARNING: Processing cancellation without disclosing early termination fees or return obligations."
                 )
@@ -91,8 +124,18 @@ class LiveAssistEngine:
 
         # If client spoke:
         if current.speaker == Speaker.CLIENT:
-            # Check 1: Client accepted offer
-            if state.retention_accepted or "take the offer" in curr_text or "sounds good" in curr_text:
+            # Check 1: Client wants to cancel or is unverified in a cancellation call (MANDATORY GATE)
+            if is_cancellation_active and not state.is_authenticated:
+                recommended_actions.append(LiveActionRecommendation(
+                    action_type="VERIFICATION_REQUIRED",
+                    title="Execute Identity Authentication (CPNI)",
+                    recommended_script="I understand your request and will be glad to assist. First, for your account security, could you please verify your account PIN or the last 4 digits of your card?",
+                    urgency="critical",
+                    trigger_reason="Federal CPNI Requirement: Identity verification must precede account cancellation."
+                ))
+
+            # Check 2: Client accepted offer (only if authenticated)
+            elif state.retention_accepted or "take the offer" in curr_text or "sounds good" in curr_text:
                 recommended_actions.append(LiveActionRecommendation(
                     action_type="CONFIRMATION_AND_WRAPUP",
                     title="Confirm Promotion Details & Next Steps",
@@ -101,7 +144,7 @@ class LiveAssistEngine:
                     trigger_reason="Customer accepted offer; proceed to clean wrap-up."
                 ))
 
-            # Check 2: Customer insists on final cancellation
+            # Check 3: Customer insists on final cancellation (when authenticated)
             elif state.cancellation_confirmed or "just cancel it" in curr_text or "go ahead and cancel" in curr_text:
                 recommended_actions.append(LiveActionRecommendation(
                     action_type="MANDATORY_DISCLOSURE",
@@ -111,7 +154,7 @@ class LiveAssistEngine:
                     trigger_reason="Cancellation confirmed; mandatory disclosure and return policy must be read."
                 ))
 
-            # Check 3: Competitor switching threat detected (High Priority Rebuttal)
+            # Check 4: Competitor switching threat detected (High Priority Rebuttal)
             elif state.competitor_detected:
                 comp = state.competitor_detected
                 recommended_actions.append(LiveActionRecommendation(
@@ -122,27 +165,17 @@ class LiveAssistEngine:
                     trigger_reason=f"Competitor switching threat ({comp}) detected. Immediate retention counter-offer required."
                 ))
 
-            # Check 4: Cancellation requested without competitor
+            # Check 5: Cancellation requested without competitor (when authenticated)
             elif "cancel" in curr_text or "too expensive" in curr_text or "close my account" in curr_text:
-                # State-aware check: Was identity already authenticated in a prior turn?
-                if not state.is_authenticated:
-                    recommended_actions.append(LiveActionRecommendation(
-                        action_type="VERIFICATION_REQUIRED",
-                        title="Execute Identity Authentication (CPNI)",
-                        recommended_script="I understand your request and will be glad to assist. First, for your account security, could you please verify your account PIN or the last 4 digits of your card?",
-                        urgency="critical",
-                        trigger_reason="Federal CPNI Requirement: Identity verification must precede account cancellation."
-                    ))
-                else:
-                    recommended_actions.append(LiveActionRecommendation(
-                        action_type="RETENTION_EXPLORATION",
-                        title="Explore Cost-Effective Plan Options",
-                        recommended_script="I completely understand cost is important. Before closing the account, may I check if switching you to our 2GB plan with unlimited talk & text ($10 less) meets your needs?",
-                        urgency="high",
-                        trigger_reason="Customer expressed cost dissatisfaction; retention opportunity available."
-                    ))
+                recommended_actions.append(LiveActionRecommendation(
+                    action_type="RETENTION_EXPLORATION",
+                    title="Explore Cost-Effective Plan Options",
+                    recommended_script="I completely understand cost is important. Before closing the account, may I check if switching you to our 2GB plan with unlimited talk & text ($10 less) meets your needs?",
+                    urgency="high",
+                    trigger_reason="Customer expressed cost dissatisfaction; retention opportunity available."
+                ))
 
-            # Check 5: Client expresses service, coverage, or signal dissatisfaction
+            # Check 6: Client expresses service, coverage, or signal dissatisfaction
             if any(k in curr_text for k in ["coverage", "signal", "dropped call", "poor reception", "spotty", "slow data", "connectivity", "no service", "trouble getting"]):
                 recommended_actions.append(LiveActionRecommendation(
                     action_type="EMPATHY_AND_DIAGNOSTICS",
@@ -152,7 +185,7 @@ class LiveAssistEngine:
                     trigger_reason="Customer reported persistent network degradation or coverage problems."
                 ))
 
-            # Check 6: Client frustrated / de-escalation
+            # Check 7: Client frustrated / de-escalation
             if any(k in curr_text for k in ["frustrat", "ridiculous", "can't believe", "unacceptable", "terrible", "awful", "angry"]):
                 recommended_actions.append(LiveActionRecommendation(
                     action_type="DE_ESCALATION",
@@ -164,13 +197,22 @@ class LiveAssistEngine:
 
         # Default action if none triggered
         if not recommended_actions:
-            recommended_actions.append(LiveActionRecommendation(
-                action_type="ACTIVE_LISTENING",
-                title="Active Listening & Professional Engagement",
-                recommended_script="I see. Please continue, and I will be glad to help resolve this for you.",
-                urgency="low",
-                trigger_reason="Standard conversational flow (no urgent compliance or retention trigger)."
-            ))
+            if is_cancellation_active and not state.is_authenticated:
+                recommended_actions.append(LiveActionRecommendation(
+                    action_type="VERIFICATION_REQUIRED",
+                    title="Execute Identity Authentication (CPNI)",
+                    recommended_script="Customer requested cancellation. Identity authentication is required before proceeding: 'For your account security, could you please verify your account PIN or the last 4 digits of your card?'",
+                    urgency="critical",
+                    trigger_reason="Federal CPNI Requirement: Identity verification must precede account cancellation."
+                ))
+            else:
+                recommended_actions.append(LiveActionRecommendation(
+                    action_type="ACTIVE_LISTENING",
+                    title="Active Listening & Professional Engagement",
+                    recommended_script="I see. Please continue, and I will be glad to help resolve this for you.",
+                    urgency="low",
+                    trigger_reason="Standard conversational flow (no urgent compliance or retention trigger)."
+                ))
 
         latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
 

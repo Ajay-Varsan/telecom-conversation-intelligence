@@ -120,3 +120,31 @@ def test_dialogue_state_tracker_phase_awareness():
     assert state_t8.cancellation_confirmed is True
     assert state_t8.retention_accepted is False
 
+
+def test_live_assist_unauthenticated_cancellation_intervention():
+    from src.analytics.live_assist import LiveAssistEngine, LiveTurnInput
+
+    engine = LiveAssistEngine()
+
+    turns = [
+        Turn(turn_id=1, speaker=Speaker.CLIENT, text="Hello, I'm calling to cancel my mobile service with Union Mobile."),
+        Turn(turn_id=2, speaker=Speaker.AGENT, text="Hi Tresa, sorry to hear that you're considering canceling your service. Can you tell me a little bit more about why you're looking to cancel?"),
+        Turn(turn_id=3, speaker=Speaker.CLIENT, text="Well, I just don't have good coverage in my area."),
+        Turn(turn_id=4, speaker=Speaker.AGENT, text="I understand. However, I can certainly assist you with the cancellation process."),
+        Turn(turn_id=5, speaker=Speaker.CLIENT, text="That's fine. Can you just cancel my service now?"),
+        Turn(turn_id=6, speaker=Speaker.AGENT, text="Of course, Tresa. Before we proceed, I just want to make sure that you're aware that canceling your service will mean that you'll no longer be able to use your phone number."),
+    ]
+
+    # Turn 5: Client asks to cancel, unauthenticated -> CPNI required
+    res5 = engine.process_turn(LiveTurnInput(conversation_id="conv_tresa", current_turn=turns[4], history=turns[:4]))
+    assert res5.recommended_actions[0].action_type == "VERIFICATION_REQUIRED"
+    assert res5.recommended_actions[0].urgency == "critical"
+
+    # Turn 6: Agent proceeds with cancellation without authenticating -> MUST flag violation and HALT
+    res6 = engine.process_turn(LiveTurnInput(conversation_id="conv_tresa", current_turn=turns[5], history=turns[:5]))
+    assert len(res6.compliance_alerts) > 0
+    assert "CRITICAL COMPLIANCE VIOLATION" in res6.compliance_alerts[0]
+    assert res6.recommended_actions[0].action_type == "CRITICAL_AUTHENTICATION_INTERVENTION"
+    assert res6.recommended_actions[0].urgency == "critical"
+
+
