@@ -96,6 +96,15 @@ class SentimentAnalyzer:
             if not c:
                 continue
             p, n = self._score_clause(c)
+
+            # Target-Aware Competitor Sentiment Inversion:
+            # If customer praises a competitor ("better offer from Mint Mobile", "free phone from Mint Mobile"),
+            # that positive praise is a strong churn threat for Union Mobile!
+            is_competitor_clause = any(comp in c for comp in ["mint mobile", "t-mobile", "verizon", "at&t", "cricket"])
+            if is_competitor_clause and p > 0:
+                n += p * 1.5
+                p = 0.0
+
             total_pos += p
             total_neg += n
 
@@ -126,19 +135,23 @@ class SentimentAnalyzer:
         base_cumulative = weighted_sum / sum(weights)
 
         # Contextual relationship state overrides
-        is_canceled = any(k in all_text for k in ["placed a request to cancel", "i've canceled your service", "cancel your service", "just cancel it"])
+        is_canceled = any(k in all_text for k in ["placed a request to cancel", "i've canceled your service", "cancel your service", "just cancel it", "process the cancellation"])
         is_upgraded = any(k in all_client_text for k in ["switch me over to the premium", "take the offer", "switch me over to that plan", "sounds like a good deal"])
+        is_switching_competitor = any(comp in all_client_text for comp in ["mint mobile", "t-mobile", "verizon", "at&t"]) and any(k in all_client_text for k in ["cancel", "switch", "better offer"])
 
         if is_upgraded:
             status = "Retained / Plan Upgraded"
-            # Upgrade pulls cumulative experience positive
             final_score = max(0.45, min(1.0, base_cumulative + 0.35))
+        elif is_switching_competitor and not is_upgraded:
+            competitor_name = "Mint Mobile" if "mint mobile" in all_client_text else "Competitor"
+            status = f"Churn Threat / Porting to {competitor_name}"
+            # Heavily penalize competitor churn intent
+            final_score = min(-0.65, base_cumulative - 0.35)
         elif is_canceled and not is_upgraded:
             status = "Churned / Service Cancelled"
-            # Service cancellation anchors cumulative customer relationship to negative
-            final_score = min(-0.40, base_cumulative - 0.25)
+            final_score = min(-0.50, base_cumulative - 0.25)
         elif base_cumulative < -0.2:
-            status = "Dissatisfied / Seeking Assistance"
+            status = "Dissatisfied / Seeking Cancellation"
             final_score = base_cumulative
         elif base_cumulative > 0.2:
             status = "Satisfied / Positive Inquiry"

@@ -82,3 +82,41 @@ def test_live_turn_streaming(sample_turns):
     action_types = [a.action_type for a in res.recommended_actions]
     assert any("VERIFICATION" in a or "RETENTION" in a for a in action_types)
     assert res.latency_ms >= 0.0
+
+
+def test_dialogue_state_tracker_phase_awareness():
+    from src.analytics.dialogue_state_tracker import DialogueStateTracker
+
+    tracker = DialogueStateTracker()
+
+    turns = [
+        Turn(turn_id=1, speaker=Speaker.AGENT, text="Thank you for calling Union Mobile. My name is Julia."),
+        Turn(turn_id=2, speaker=Speaker.CLIENT, text="Hi Julia, I want to cancel my account."),
+        Turn(turn_id=3, speaker=Speaker.AGENT, text="I can help with that, could you please verify your account PIN?"),
+        Turn(turn_id=4, speaker=Speaker.CLIENT, text="Sure, my PIN is 4821."),
+        Turn(turn_id=5, speaker=Speaker.AGENT, text="Thanks, I've located your account. You are on our 5GB plan."),
+        Turn(turn_id=6, speaker=Speaker.CLIENT, text="Mint Mobile has a cheaper deal with a free phone so I want to switch."),
+        Turn(turn_id=7, speaker=Speaker.AGENT, text="What if I offer you our loyalty discount of $10 off?"),
+        Turn(turn_id=8, speaker=Speaker.CLIENT, text="No thanks, please cancel it."),
+    ]
+
+    # After turn 2: unauthenticated cancellation request
+    state_t2 = tracker.track_state(turns[:2])
+    assert state_t2.is_authenticated is False
+    assert state_t2.current_phase == "AUTHENTICATION"
+
+    # After turn 4: authenticated
+    state_t4 = tracker.track_state(turns[:4])
+    assert state_t4.is_authenticated is True
+
+    # After turn 6: competitor detected, negotiation phase
+    state_t6 = tracker.track_state(turns[:6])
+    assert state_t6.is_authenticated is True
+    assert state_t6.competitor_detected == "Mint Mobile"
+    assert state_t6.current_phase == "NEGOTIATION"
+
+    # After turn 8: cancellation confirmed
+    state_t8 = tracker.track_state(turns)
+    assert state_t8.cancellation_confirmed is True
+    assert state_t8.retention_accepted is False
+

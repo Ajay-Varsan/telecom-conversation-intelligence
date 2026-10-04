@@ -9,6 +9,7 @@ from src.models.schemas import (
     LiveActionRecommendation
 )
 from src.analytics.sentiment_analyzer import SentimentAnalyzer
+from src.analytics.dialogue_state_tracker import DialogueStateTracker
 
 
 class LiveAssistEngine:
@@ -16,6 +17,7 @@ class LiveAssistEngine:
 
     def __init__(self):
         self.sentiment_analyzer = SentimentAnalyzer()
+        self.dialogue_tracker = DialogueStateTracker()
 
     def process_turn(self, input_data: LiveTurnInput) -> LiveAssistResponse:
         start_time = time.perf_counter()
@@ -24,12 +26,17 @@ class LiveAssistEngine:
         history = input_data.history or []
         all_turns = history + [current]
 
-        # 1. Turn Sentiment & Contextual Customer Experience
+        # 1. Stateful Dialogue Tracking (Solves Stateless Edge Cases)
+        state = self.dialogue_tracker.track_state(all_turns)
+
+        # 2. Turn Sentiment & Contextual Customer Experience
         turn_sentiment = self.sentiment_analyzer.score_turn_text(current.text)
         sentiment_label = self.sentiment_analyzer.get_label(turn_sentiment)
 
         # Compute cumulative customer experience sentiment & relationship status across the call
-        cust_score, cust_label, cust_state = self.sentiment_analyzer.compute_cumulative_customer_sentiment(all_turns)
+        cust_score, cust_label, raw_cust_state = self.sentiment_analyzer.compute_cumulative_customer_sentiment(all_turns)
+        # Use stateful description if rich state detected
+        cust_state = state.customer_state_description or raw_cust_state
 
         # Calculate running sentiment trend strictly across customer turns
         client_turns = [t for t in all_turns if t.speaker == Speaker.CLIENT]
@@ -49,7 +56,7 @@ class LiveAssistEngine:
         else:
             trend = "stable"
 
-        # 2. Live Compliance Checks & Next Best Actions
+        # 3. Live Compliance Checks & Next Best Actions
         compliance_alerts: List[str] = []
         recommended_actions: List[LiveActionRecommendation] = []
 
@@ -84,10 +91,41 @@ class LiveAssistEngine:
 
         # If client spoke:
         if current.speaker == Speaker.CLIENT:
-            # Client wants to cancel
-            if "cancel" in curr_text or "too expensive" in curr_text:
-                # Check if identity was verified yet
-                if "verify" not in full_text and "account pin" not in full_text and "credit card" not in full_text:
+            # Check 1: Client accepted offer
+            if state.retention_accepted or "take the offer" in curr_text or "sounds good" in curr_text:
+                recommended_actions.append(LiveActionRecommendation(
+                    action_type="CONFIRMATION_AND_WRAPUP",
+                    title="Confirm Promotion Details & Next Steps",
+                    recommended_script="Excellent! I have applied that plan change to your account effective immediately. You'll receive a confirmation email shortly. Is there anything else today?",
+                    urgency="low",
+                    trigger_reason="Customer accepted offer; proceed to clean wrap-up."
+                ))
+
+            # Check 2: Customer insists on final cancellation
+            elif state.cancellation_confirmed or "just cancel it" in curr_text or "go ahead and cancel" in curr_text:
+                recommended_actions.append(LiveActionRecommendation(
+                    action_type="MANDATORY_DISCLOSURE",
+                    title="Read Cancellation Disclosures & Next Steps",
+                    recommended_script="I have processed your cancellation request. Please note any rented equipment must be returned within 14 days to avoid non-return fees, and your final bill will generate on your normal cycle.",
+                    urgency="high",
+                    trigger_reason="Cancellation confirmed; mandatory disclosure and return policy must be read."
+                ))
+
+            # Check 3: Competitor switching threat detected (High Priority Rebuttal)
+            elif state.competitor_detected:
+                comp = state.competitor_detected
+                recommended_actions.append(LiveActionRecommendation(
+                    action_type="COMPETITIVE_REBUTTAL",
+                    title=f"Competitive Rebuttal ({comp})",
+                    recommended_script=f"I understand {comp} has attractive introductory pricing. However, with Union Mobile, your traffic is never deprioritized, and I can apply our $10/month loyalty credit right now to match their value.",
+                    urgency="high",
+                    trigger_reason=f"Competitor switching threat ({comp}) detected. Immediate retention counter-offer required."
+                ))
+
+            # Check 4: Cancellation requested without competitor
+            elif "cancel" in curr_text or "too expensive" in curr_text or "close my account" in curr_text:
+                # State-aware check: Was identity already authenticated in a prior turn?
+                if not state.is_authenticated:
                     recommended_actions.append(LiveActionRecommendation(
                         action_type="VERIFICATION_REQUIRED",
                         title="Execute Identity Authentication (CPNI)",
@@ -104,7 +142,7 @@ class LiveAssistEngine:
                         trigger_reason="Customer expressed cost dissatisfaction; retention opportunity available."
                     ))
 
-            # Client expresses service, coverage, or signal dissatisfaction
+            # Check 5: Client expresses service, coverage, or signal dissatisfaction
             if any(k in curr_text for k in ["coverage", "signal", "dropped call", "poor reception", "spotty", "slow data", "connectivity", "no service", "trouble getting"]):
                 recommended_actions.append(LiveActionRecommendation(
                     action_type="EMPATHY_AND_DIAGNOSTICS",
@@ -114,7 +152,7 @@ class LiveAssistEngine:
                     trigger_reason="Customer reported persistent network degradation or coverage problems."
                 ))
 
-            # Client frustrated / de-escalation
+            # Check 6: Client frustrated / de-escalation
             if any(k in curr_text for k in ["frustrat", "ridiculous", "can't believe", "unacceptable", "terrible", "awful", "angry"]):
                 recommended_actions.append(LiveActionRecommendation(
                     action_type="DE_ESCALATION",
@@ -122,26 +160,6 @@ class LiveAssistEngine:
                     recommended_script="I sincerely apologize for the inconvenience and understand this has been frustrating. I am here to help you get this resolved right now.",
                     urgency="critical",
                     trigger_reason="Customer emotional state escalated to high frustration."
-                ))
-
-            # Client mentions competitor
-            if "mint mobile" in curr_text or "t-mobile" in curr_text or "verizon" in curr_text:
-                recommended_actions.append(LiveActionRecommendation(
-                    action_type="COMPETITIVE_REBUTTAL",
-                    title="Competitor Comparison & Retention Credit",
-                    recommended_script="I understand other carriers have attractive introductory promotions. We can offer you our loyalty monthly credit and network priority guarantee if you remain with us.",
-                    urgency="medium",
-                    trigger_reason="Competitor switching threat detected."
-                ))
-
-            # Client agrees or says thank you
-            if "take the offer" in curr_text or "sounds good" in curr_text:
-                recommended_actions.append(LiveActionRecommendation(
-                    action_type="CONFIRMATION_AND_WRAPUP",
-                    title="Confirm Promotion Details & Next Steps",
-                    recommended_script="Excellent! I have applied that plan change to your account effective immediately. You'll receive a confirmation email shortly. Is there anything else today?",
-                    urgency="low",
-                    trigger_reason="Customer accepted offer; proceed to clean wrap-up."
                 ))
 
         # Default action if none triggered
