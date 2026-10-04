@@ -49,6 +49,7 @@ class LiveAssistResponse(BaseModel):
     sentiment_label: str
     customer_sentiment: float = 0.0
     customer_sentiment_label: str = "neutral"
+    customer_state: str = "In Progress"
     running_sentiment_trend: str
     compliance_alerts: List[str] = Field(default_factory=list)
     recommended_actions: List[LiveActionRecommendation] = Field(default_factory=list)

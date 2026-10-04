@@ -24,21 +24,15 @@ class LiveAssistEngine:
         history = input_data.history or []
         all_turns = history + [current]
 
-        # 1. Turn Sentiment & Speaker-Aware Customer Mood
+        # 1. Turn Sentiment & Contextual Customer Experience
         turn_sentiment = self.sentiment_analyzer.score_turn_text(current.text)
         sentiment_label = self.sentiment_analyzer.get_label(turn_sentiment)
 
-        # Separate Customer's sentiment so Agent's turns do not overwrite Customer Mood
-        client_turns = [t for t in all_turns if t.speaker == Speaker.CLIENT]
-        if client_turns:
-            latest_client_turn = client_turns[-1]
-            customer_sentiment = self.sentiment_analyzer.score_turn_text(latest_client_turn.text)
-            customer_sentiment_label = self.sentiment_analyzer.get_label(customer_sentiment)
-        else:
-            customer_sentiment = 0.0
-            customer_sentiment_label = "neutral"
+        # Compute cumulative customer experience sentiment & relationship status across the call
+        cust_score, cust_label, cust_state = self.sentiment_analyzer.compute_cumulative_customer_sentiment(all_turns)
 
         # Calculate running sentiment trend strictly across customer turns
+        client_turns = [t for t in all_turns if t.speaker == Speaker.CLIENT]
         client_sentiments = [
             self.sentiment_analyzer.score_turn_text(t.text)
             for t in client_turns
@@ -168,8 +162,9 @@ class LiveAssistEngine:
             turn_speaker=current.speaker,
             turn_sentiment=turn_sentiment,
             sentiment_label=sentiment_label,
-            customer_sentiment=customer_sentiment,
-            customer_sentiment_label=customer_sentiment_label,
+            customer_sentiment=cust_score,
+            customer_sentiment_label=cust_label,
+            customer_state=cust_state,
             running_sentiment_trend=trend,
             compliance_alerts=compliance_alerts,
             recommended_actions=recommended_actions,

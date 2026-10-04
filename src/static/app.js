@@ -111,7 +111,7 @@ async function stepNextTurn() {
     });
     const liveData = await res.json();
 
-    // Update sentiment meters with speaker awareness
+    // Update sentiment meters with speaker & cumulative relationship state awareness
     const custScore = liveData.customer_sentiment !== undefined ? liveData.customer_sentiment : liveData.turn_sentiment;
     const custLabel = liveData.customer_sentiment_label || liveData.sentiment_label;
     const custScoreText = custScore > 0 ? `+${custScore}` : `${custScore}`;
@@ -119,11 +119,12 @@ async function stepNextTurn() {
 
     const speakerLabel = liveData.turn_speaker === 'agent' ? 'Agent' : 'Customer';
     const turnScoreText = liveData.turn_sentiment > 0 ? `+${liveData.turn_sentiment}` : `${liveData.turn_sentiment}`;
+    const stateText = liveData.customer_state || "In Progress";
 
     document.getElementById("liveSentimentLabel").innerHTML = `
       <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem;">
         <span class="badge ${custBadgeClass}" style="font-size: 0.85rem; padding: 0.3rem 0.7rem;">
-          Customer: ${custLabel.toUpperCase()} (${custScoreText})
+          Customer: ${custLabel.toUpperCase()} (${custScoreText}) • ${stateText}
         </span>
         <span style="font-size: 0.72rem; color: var(--text-muted);">
           Latest Turn #${liveData.turn_id} by ${speakerLabel}: ${liveData.sentiment_label} (${turnScoreText})

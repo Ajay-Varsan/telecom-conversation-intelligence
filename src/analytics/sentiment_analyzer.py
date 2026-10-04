@@ -5,44 +5,43 @@ from src.models.schemas import Turn, SentimentArc, Speaker
 TELECOM_POSITIVE_TERMS = {
     "thank you": 0.85, "thanks": 0.75, "great": 0.85, "glad": 0.75, "appreciate": 0.8,
     "helpful": 0.75, "wonderful": 0.9, "excellent": 0.9, "perfect": 0.9, "sounds good": 0.8,
-    "sounds easy": 0.75, "take the offer": 0.75, "resolved": 0.8, "satisfied": 0.85,
-    "good": 0.45, "better": 0.5, "happy": 0.8, "pleasure": 0.7
+    "sounds easy": 0.75, "take the offer": 0.85, "resolved": 0.8, "satisfied": 0.85,
+    "good deal": 0.85, "switch me over": 0.8, "good": 0.45, "better": 0.5, "happy": 0.8, "pleasure": 0.7
 }
 
 TELECOM_NEGATIVE_TERMS = {
-    "cancel": -0.7, "frustrat": -0.85, "ridiculous": -0.9, "expensive": -0.65,
+    "cancel": -0.75, "frustrat": -0.85, "ridiculous": -0.9, "expensive": -0.65,
     "dropped call": -0.85, "poor reception": -0.85, "slow data": -0.7, "spotty": -0.7,
     "unreliable": -0.85, "terrible": -0.95, "awful": -0.95, "horrible": -0.95,
     "not working": -0.8, "unable": -0.5, "complaint": -0.8, "angry": -0.9,
     "switch to": -0.65, "rip off": -0.95, "worst": -0.95, "disappointed": -0.8,
     "hate": -0.9, "unacceptable": -0.85, "disconnect": -0.6, "useless": -0.85,
     "trouble": -0.7, "problem": -0.6, "issue": -0.5, "poor": -0.7, "bad": -0.7,
-    "no coverage": -0.85, "no signal": -0.85, "signal problem": -0.8
+    "no coverage": -0.85, "no signal": -0.85, "just cancel": -0.85
 }
 
 NEGATION_TOKENS = {
     "not", "dont", "don't", "doesnt", "doesn't", "didnt", "didn't",
-    "cant", "can't", "cannot", "no", "never", "hardly", "barely",
-    "unable", "without", "lacks", "lacking", "trouble"
+    "cant", "can't", "cannot", "never", "hardly", "barely",
+    "without", "lacks", "lacking"
 }
+
+CLOSING_IDIOMS = [
+    r"\bno,?\s+that'?s\s+all\b",
+    r"\bno\s+thanks?\b",
+    r"\bno\s+further\b",
+    r"\bno\s+other\b",
+    r"\bthat'?s\s+all\b"
+]
 
 
 class SentimentAnalyzer:
-    """Production-grade sentiment analysis for telecom contact centers with negation awareness."""
+    """Production-grade sentiment analysis for telecom contact centers with clause and negation awareness."""
 
-    def score_turn_text(self, text: str) -> float:
-        if not text:
-            return 0.0
-        lower = text.lower()
+    def _score_clause(self, clause: str) -> Tuple[float, float]:
+        lower = clause.lower()
         clean = re.sub(r"[^a-z0-9\s\']", " ", lower)
         tokens = clean.split()
-
-        # Check explicit emotion tag in synthetic transcripts e.g. "(frustrated)"
-        base_bias = 0.0
-        if "(frustrated)" in lower or "(angry)" in lower:
-            base_bias = -0.4
-        elif "(happy)" in lower or "(relieved)" in lower:
-            base_bias = 0.4
 
         pos_score = 0.0
         neg_score = 0.0
@@ -52,13 +51,13 @@ class SentimentAnalyzer:
             if phrase in lower:
                 neg_score += abs(weight)
 
-        # 2. Positive terms scanning with negation window check
+        # 2. Positive terms scanning with clause-bounded negation window
         for phrase, weight in TELECOM_POSITIVE_TERMS.items():
             p_tokens = phrase.split()
             p_len = len(p_tokens)
             for i in range(len(tokens) - p_len + 1):
                 if tokens[i:i + p_len] == p_tokens:
-                    # Check 3 preceding words for negation (e.g. "not getting good", "don't have good", "not happy")
+                    # Check preceding tokens within this clause
                     window_start = max(0, i - 3)
                     preceding = tokens[window_start:i]
                     if any(neg in preceding for neg in NEGATION_TOKENS):
@@ -67,13 +66,90 @@ class SentimentAnalyzer:
                     else:
                         pos_score += weight
 
-        total = pos_score + neg_score
+        return pos_score, neg_score
+
+    def score_turn_text(self, text: str) -> float:
+        if not text:
+            return 0.0
+        lower = text.lower()
+
+        # Check explicit emotion tag in synthetic transcripts e.g. "(frustrated)"
+        base_bias = 0.0
+        if "(frustrated)" in lower or "(angry)" in lower:
+            base_bias = -0.4
+        elif "(happy)" in lower or "(relieved)" in lower:
+            base_bias = 0.4
+
+        # Pre-process polite closing idioms (e.g. "No, that's all. Thank you" -> "wrapup. Thank you")
+        cleaned_text = lower
+        for pattern in CLOSING_IDIOMS:
+            cleaned_text = re.sub(pattern, "wrapup", cleaned_text)
+
+        # Split text into clauses by punctuation boundaries (. ! ? ; ,) so negations don't bleed across sentences
+        clauses = re.split(r"[.!?;\n]+", cleaned_text)
+
+        total_pos = 0.0
+        total_neg = 0.0
+
+        for c in clauses:
+            c = c.strip()
+            if not c:
+                continue
+            p, n = self._score_clause(c)
+            total_pos += p
+            total_neg += n
+
+        total = total_pos + total_neg
         if total == 0:
             return max(-1.0, min(1.0, base_bias))
 
-        raw_sentiment = (pos_score - neg_score) / (total + 0.5)
+        raw_sentiment = (total_pos - total_neg) / (total + 0.5)
         raw_sentiment += base_bias
         return max(-1.0, min(1.0, round(raw_sentiment, 3)))
+
+    def compute_cumulative_customer_sentiment(self, turns: List[Turn]) -> Tuple[float, str, str]:
+        """Calculates cumulative customer experience sentiment across the entire call.
+        Returns:
+            (cumulative_score, cumulative_label, relationship_status)
+        """
+        client_turns = [t for t in turns if t.speaker == Speaker.CLIENT]
+        if not client_turns:
+            return 0.0, "neutral", "In Progress"
+
+        scores = [self.score_turn_text(t.text) for t in client_turns]
+        all_client_text = " ".join(t.text for t in client_turns).lower()
+        all_text = " ".join(t.text for t in turns).lower()
+
+        # Recency-weighted average
+        weights = [1.0 + (0.2 * i) for i in range(len(scores))]
+        weighted_sum = sum(s * w for s, w in zip(scores, weights))
+        base_cumulative = weighted_sum / sum(weights)
+
+        # Contextual relationship state overrides
+        is_canceled = any(k in all_text for k in ["placed a request to cancel", "i've canceled your service", "cancel your service", "just cancel it"])
+        is_upgraded = any(k in all_client_text for k in ["switch me over to the premium", "take the offer", "switch me over to that plan", "sounds like a good deal"])
+
+        if is_upgraded:
+            status = "Retained / Plan Upgraded"
+            # Upgrade pulls cumulative experience positive
+            final_score = max(0.45, min(1.0, base_cumulative + 0.35))
+        elif is_canceled and not is_upgraded:
+            status = "Churned / Service Cancelled"
+            # Service cancellation anchors cumulative customer relationship to negative
+            final_score = min(-0.40, base_cumulative - 0.25)
+        elif base_cumulative < -0.2:
+            status = "Dissatisfied / Seeking Assistance"
+            final_score = base_cumulative
+        elif base_cumulative > 0.2:
+            status = "Satisfied / Positive Inquiry"
+            final_score = base_cumulative
+        else:
+            status = "Neutral Interaction"
+            final_score = base_cumulative
+
+        final_score = max(-1.0, min(1.0, round(final_score, 3)))
+        label = self.get_label(final_score)
+        return final_score, label, status
 
     def get_label(self, score: float) -> str:
         if score > 0.15:
