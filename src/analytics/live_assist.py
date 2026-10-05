@@ -207,6 +207,23 @@ class LiveAssistEngine:
                     urgency="critical",
                     trigger_reason="Federal CPNI Requirement: Identity verification must precede account cancellation."
                 ))
+            elif state.competitor_detected and not state.retention_offered and not state.cancellation_confirmed:
+                comp = state.competitor_detected
+                recommended_actions.append(LiveActionRecommendation(
+                    action_type="COMPETITIVE_REBUTTAL",
+                    title=f"Competitive Rebuttal ({comp})",
+                    recommended_script=f"Customer is considering {comp}. Introduce competitive counter-offer: 'Before finalizing, we have a $10/month loyalty credit on your current plan so you keep priority network access.'",
+                    urgency="high",
+                    trigger_reason=f"Active churn threat to {comp}. Retention counter-offer recommended."
+                ))
+            elif is_cancellation_active and not state.retention_offered and not state.cancellation_confirmed:
+                recommended_actions.append(LiveActionRecommendation(
+                    action_type="RETENTION_EXPLORATION",
+                    title="Explore Retention / Downsize Options",
+                    recommended_script="Customer requested cancellation. Explore lower-cost tiers before processing: 'Before we close the account, may I check if our 2GB plan at a lower monthly rate fits your needs?'",
+                    urgency="high",
+                    trigger_reason="Customer expressed intent to cancel; explore alternatives before releasing account."
+                ))
             else:
                 recommended_actions.append(LiveActionRecommendation(
                     action_type="ACTIVE_LISTENING",

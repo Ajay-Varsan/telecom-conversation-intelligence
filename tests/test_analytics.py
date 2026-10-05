@@ -148,3 +148,34 @@ def test_live_assist_unauthenticated_cancellation_intervention():
     assert res6.recommended_actions[0].urgency == "critical"
 
 
+def test_masked_pin_and_account_confirmation_suppresses_cpni():
+    from src.analytics.live_assist import LiveAssistEngine, LiveTurnInput
+
+    engine = LiveAssistEngine()
+
+    transcript = [
+        Turn(turn_id=1, speaker=Speaker.CLIENT, text="I want to cancel my account and switch to Mint Mobile."),
+        Turn(turn_id=2, speaker=Speaker.AGENT, text="Can you please confirm your account PIN for me?"),
+        Turn(turn_id=3, speaker=Speaker.CLIENT, text="Sure, it's *******."),
+        Turn(turn_id=4, speaker=Speaker.AGENT, text="Great, thank you. Alright, I've confirmed your account. Is there anything specific you'd like to know about the transition process?"),
+        Turn(turn_id=5, speaker=Speaker.CLIENT, text="Mint Mobile offered me a free phone."),
+        Turn(turn_id=6, speaker=Speaker.AGENT, text="I understand.")
+    ]
+
+    # Process Turn 6 (Agent response after customer authenticated and mentioned Mint Mobile)
+    res6 = engine.process_turn(LiveTurnInput(
+        conversation_id="conv_masked_pin",
+        current_turn=transcript[5],
+        history=transcript[:5]
+    ))
+
+    # CPNI verification MUST NOT be requested
+    action_types = [a.action_type for a in res6.recommended_actions]
+    assert "VERIFICATION_REQUIRED" not in action_types
+    assert "CRITICAL_AUTHENTICATION_INTERVENTION" not in action_types
+
+    # Should offer competitive rebuttal for Mint Mobile
+    assert any("COMPETITIVE_REBUTTAL" in a or "RETENTION" in a for a in action_types)
+
+
+
