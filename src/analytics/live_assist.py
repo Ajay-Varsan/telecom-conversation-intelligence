@@ -23,7 +23,9 @@ class LiveAssistEngine:
         start_time = time.perf_counter()
 
         current = input_data.current_turn
-        history = input_data.history or []
+        if isinstance(current, dict):
+            current = Turn(**current)
+        history = [Turn(**t) if isinstance(t, dict) else t for t in (input_data.history or [])]
         all_turns = history + [current]
 
         # 1. Stateful Dialogue Tracking (Solves Stateless Edge Cases)

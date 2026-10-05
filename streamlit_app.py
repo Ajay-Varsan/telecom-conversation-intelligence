@@ -226,12 +226,14 @@ with tab_live:
         with btn_c1:
             if st.button("▶️ Step Next Turn", use_container_width=True, disabled=st.session_state.live_turn_idx >= len(current_conv.turns)):
                 next_turn = current_conv.turns[st.session_state.live_turn_idx]
+                turn_dict = next_turn.model_dump() if hasattr(next_turn, "model_dump") else next_turn
+                history_dicts = [t.model_dump() if hasattr(t, "model_dump") else t for t in st.session_state.live_history]
                 live_input = LiveTurnInput(
                     conversation_id=current_conv.conversation_id,
                     agent_id=current_conv.agent_id,
                     team_id=current_conv.team_id,
-                    current_turn=next_turn,
-                    history=st.session_state.live_history
+                    current_turn=turn_dict,
+                    history=history_dicts
                 )
                 resp = services["assist_engine"].process_turn(live_input)
                 st.session_state.live_history.append(next_turn)

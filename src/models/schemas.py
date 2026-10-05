@@ -29,8 +29,8 @@ class LiveTurnInput(BaseModel):
     conversation_id: str
     agent_id: Optional[str] = "agent_unknown"
     team_id: Optional[str] = "general_support"
-    current_turn: Turn
-    history: List[Turn] = Field(default_factory=list)
+    current_turn: Any
+    history: List[Any] = Field(default_factory=list)
 
 
 class LiveActionRecommendation(BaseModel):
