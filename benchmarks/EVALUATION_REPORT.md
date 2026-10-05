@@ -8,8 +8,8 @@ This evaluation report assesses the system's performance, accuracy, grounding fi
 | Metric | Target SLA | Benchmark Result | Status |
 | :--- | :--- | :--- | :--- |
 | **Quote Grounding Fidelity** | 100.0% | **100.0%** (119/119) | ✅ PASS |
-| **Live Assist Stream Latency (P95)** | < 300 ms | **6.4 ms** | ✅ PASS |
-| **Post-Call Batch Latency (P95)** | < 1,500 ms | **17.3 ms** | ✅ PASS |
+| **Live Assist Stream Latency (P95)** | < 300 ms | **85.53 ms** | ✅ PASS |
+| **Post-Call Batch Latency (P95)** | < 1,500 ms | **127.34 ms** | ✅ PASS |
 | **Compliance Violation Sensitivity** | High | **22 violations flagged** | ✅ PASS |
 | **Churn Risk Detection Rate** | > 80% on cancel calls | **88.0%** | ✅ PASS |
 
@@ -18,14 +18,14 @@ This evaluation report assesses the system's performance, accuracy, grounding fi
 ## Detailed Latency Percentiles
 
 ### Post-Call Batch Analysis
-* **P50 (Median)**: 5.03 ms
-* **P95**: 17.3 ms
-* **P99**: 20.42 ms
+* **P50 (Median)**: 27.2 ms
+* **P95**: 127.34 ms
+* **P99**: 158.73 ms
 
 ### Live Turn-by-Turn Assist Stream
-* **P50 (Median)**: 2.6 ms
-* **P95**: 6.4 ms
-* **P99**: 7.6 ms
+* **P50 (Median)**: 31.44 ms
+* **P95**: 85.53 ms
+* **P99**: 102.39 ms
 
 ---
 

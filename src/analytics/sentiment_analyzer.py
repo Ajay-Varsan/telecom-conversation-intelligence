@@ -1,4 +1,6 @@
+import os
 import re
+import joblib
 from typing import List, Tuple
 from src.models.schemas import Turn, SentimentArc, Speaker
 
@@ -36,7 +38,15 @@ CLOSING_IDIOMS = [
 
 
 class SentimentAnalyzer:
-    """Production-grade sentiment analysis for telecom contact centers with clause and negation awareness."""
+    """Production-grade sentiment analysis combining trained statistical ML pipeline with deterministic fallback."""
+
+    def __init__(self, model_path: str = "models/telecom_sentiment_model.joblib"):
+        self.ml_pipeline = None
+        if os.path.exists(model_path):
+            try:
+                self.ml_pipeline = joblib.load(model_path)
+            except Exception:
+                self.ml_pipeline = None
 
     def _score_clause(self, clause: str) -> Tuple[float, float]:
         lower = clause.lower()
@@ -80,7 +90,23 @@ class SentimentAnalyzer:
         elif "(happy)" in lower or "(relieved)" in lower:
             base_bias = 0.4
 
-        # Pre-process polite closing idioms (e.g. "No, that's all. Thank you" -> "wrapup. Thank you")
+        # Primary Inference: Trained Telecom ML Model
+        if self.ml_pipeline is not None:
+            try:
+                probs = self.ml_pipeline.predict_proba([text])[0]
+                classes = list(self.ml_pipeline.classes_)
+                p_neg = probs[classes.index("negative")]
+                p_pos = probs[classes.index("positive")]
+                p_neu = probs[classes.index("neutral")]
+
+                # Calibrated polarity score [-1.0, 1.0]
+                polarity = (p_pos - p_neg) / (1.0 - (0.5 * p_neu) + 1e-5)
+                polarity += base_bias
+                return max(-1.0, min(1.0, round(polarity, 3)))
+            except Exception:
+                pass
+
+        # Fallback Engine: Deterministic Clause & Negation Rules
         cleaned_text = lower
         for pattern in CLOSING_IDIOMS:
             cleaned_text = re.sub(pattern, "wrapup", cleaned_text)
