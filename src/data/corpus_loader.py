@@ -1,16 +1,16 @@
 import os
 import re
+import random
 import pandas as pd
 from typing import List, Dict, Optional, Any
 from src.models.schemas import Turn, Speaker, TranscriptInput
 
 
 class CorpusLoader:
-    """Loads and formats conversations from the telecom dataset."""
+    """Loads and formats conversations from the telecom dataset with dynamic random sampling."""
 
     def __init__(self, data_path: Optional[str] = None):
         if not data_path:
-            # Default to supplemental corpus or full 200k
             suppl_path = os.path.join("telecom-conversation-corpus", "telecom_corpus_supplimental.csv")
             if os.path.exists(suppl_path):
                 self.data_path = suppl_path
@@ -21,6 +21,14 @@ class CorpusLoader:
 
         self._cache: Dict[str, TranscriptInput] = {}
         self._loaded_ids: List[str] = []
+        self._df: Optional[pd.DataFrame] = None
+        self._all_conv_ids: List[str] = []
+
+    def _ensure_data_loaded(self):
+        """Loads and caches the dataframe in memory for sub-second sampling."""
+        if self._df is None and os.path.exists(self.data_path):
+            self._df = pd.read_csv(self.data_path)
+            self._all_conv_ids = self._df["conversation_id"].dropna().unique().tolist()
 
     def extract_agent_name(self, text: str) -> str:
         """Extracts agent name from greeting e.g. 'My name is Julia'."""
@@ -32,61 +40,64 @@ class CorpusLoader:
             return match2.group(1).capitalize()
         return "Agent_Unknown"
 
-    def load_sample_conversations(self, limit_convs: int = 20) -> List[TranscriptInput]:
-        """Loads a slice of distinct conversations from the CSV."""
-        if not os.path.exists(self.data_path):
+    def _build_transcript(self, conv_id: str, group: pd.DataFrame) -> TranscriptInput:
+        turns: List[Turn] = []
+        agent_name = "Agent_Unknown"
+
+        for idx, (_, row) in enumerate(group.iterrows()):
+            speaker_str = str(row.get("speaker", "")).strip().lower()
+            speaker = Speaker.AGENT if speaker_str == "agent" else Speaker.CLIENT
+            text = str(row.get("text", "")).strip()
+            dt = str(row.get("date_time", ""))
+
+            if speaker == Speaker.AGENT and agent_name == "Agent_Unknown":
+                agent_name = self.extract_agent_name(text)
+
+            turns.append(Turn(
+                turn_id=idx + 1,
+                speaker=speaker,
+                text=text,
+                timestamp=dt if dt else None
+            ))
+
+        team_map = {
+            "Julia": "Retention_Team_Alpha",
+            "Justin": "Retention_Team_Alpha",
+            "Gertrude": "Compliance_Specialists",
+            "Ray": "Tech_Support_Tier1",
+            "Alexandra": "Billing_Retention_Team_Beta",
+            "Francesco": "Billing_Retention_Team_Beta",
+            "Devin": "Retention_Team_Alpha",
+            "Vada": "Tech_Support_Tier1"
+        }
+        team_id = team_map.get(agent_name, "General_Telecom_Support")
+
+        return TranscriptInput(
+            conversation_id=str(conv_id),
+            agent_id=agent_name,
+            team_id=team_id,
+            turns=turns
+        )
+
+    def load_sample_conversations(self, limit_convs: int = 15, shuffle: bool = True) -> List[TranscriptInput]:
+        """Loads a fresh, diverse slice of conversations from across all 8,300+ corpus records."""
+        self._ensure_data_loaded()
+        if self._df is None or not self._all_conv_ids:
             return []
 
-        # Read enough rows to get limit_convs conversations
-        df = pd.read_csv(self.data_path, nrows=limit_convs * 40)
-        grouped = df.groupby("conversation_id", sort=False)
+        if shuffle and len(self._all_conv_ids) > limit_convs:
+            selected_ids = random.sample(self._all_conv_ids, limit_convs)
+        else:
+            selected_ids = self._all_conv_ids[:limit_convs]
+
+        sub_df = self._df[self._df["conversation_id"].isin(selected_ids)]
+        grouped = sub_df.groupby("conversation_id", sort=False)
 
         transcripts: List[TranscriptInput] = []
-        count = 0
-
         for conv_id, group in grouped:
-            turns: List[Turn] = []
-            agent_name = "Agent_Unknown"
-
-            for idx, (_, row) in enumerate(group.iterrows()):
-                speaker_str = str(row["speaker"]).strip().lower()
-                speaker = Speaker.AGENT if speaker_str == "agent" else Speaker.CLIENT
-                text = str(row["text"]).strip()
-                dt = str(row.get("date_time", ""))
-
-                if speaker == Speaker.AGENT and agent_name == "Agent_Unknown":
-                    agent_name = self.extract_agent_name(text)
-
-                turns.append(Turn(
-                    turn_id=idx + 1,
-                    speaker=speaker,
-                    text=text,
-                    timestamp=dt if dt else None
-                ))
-
-            # Team allocation based on agent for realistic contact center simulation
-            team_map = {
-                "Julia": "Retention_Team_Alpha",
-                "Justin": "Retention_Team_Alpha",
-                "Gertrude": "Compliance_Specialists",
-                "Ray": "Tech_Support_Tier1",
-                "Alexandra": "Billing_Retention_Team_Beta",
-                "Francesco": "Billing_Retention_Team_Beta"
-            }
-            team_id = team_map.get(agent_name, "General_Telecom_Support")
-
-            transcript = TranscriptInput(
-                conversation_id=str(conv_id),
-                agent_id=agent_name,
-                team_id=team_id,
-                turns=turns
-            )
-
+            transcript = self._build_transcript(conv_id, group)
             self._cache[str(conv_id)] = transcript
             transcripts.append(transcript)
-            count += 1
-            if count >= limit_convs:
-                break
 
         self._loaded_ids = list(self._cache.keys())
         return transcripts
@@ -94,6 +105,13 @@ class CorpusLoader:
     def get_conversation_by_id(self, conv_id: str) -> Optional[TranscriptInput]:
         if conv_id in self._cache:
             return self._cache[conv_id]
-        # Otherwise load first batch
-        self.load_sample_conversations(limit_convs=30)
-        return self._cache.get(conv_id)
+
+        self._ensure_data_loaded()
+        if self._df is not None:
+            sub = self._df[self._df["conversation_id"] == conv_id]
+            if not sub.empty:
+                transcript = self._build_transcript(conv_id, sub)
+                self._cache[str(conv_id)] = transcript
+                return transcript
+
+        return None

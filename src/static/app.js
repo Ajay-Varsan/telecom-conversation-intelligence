@@ -35,7 +35,7 @@ function setupNavigation() {
 // 1. Load Sample Conversations from Corpus
 async function loadSampleList() {
   try {
-    const res = await fetch("/qa/sample-conversations?limit=15");
+    const res = await fetch(`/qa/sample-conversations?limit=15&t=${Date.now()}`, { cache: "no-store" });
     allSampleConversations = await res.json();
     const select = document.getElementById("convSelect");
     select.innerHTML = "";

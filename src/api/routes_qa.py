@@ -47,9 +47,9 @@ async def list_monitored_teams():
 
 
 @router.get("/sample-conversations")
-async def get_sample_conversations(limit: int = 10):
+async def get_sample_conversations(limit: int = 15, shuffle: bool = True):
     """Fetch sample conversations from the telecom dataset for interactive testing."""
-    samples = corpus_loader.load_sample_conversations(limit_convs=limit)
+    samples = corpus_loader.load_sample_conversations(limit_convs=limit, shuffle=shuffle)
     return [
         {
             "conversation_id": s.conversation_id,
