@@ -137,11 +137,14 @@ if "live_responses" not in st.session_state:
 if not services["rollup_manager"].agent_records:
     for conv in st.session_state.sample_convs[:10]:
         reasons = services["reason_classifier"].classify(conv.turns)
+        reason_labels = [r.label for r in reasons]
         churn = services["churn_detector"].evaluate_churn_risk(conv.turns)
         res = services["churn_detector"].evaluate_resolution(conv.turns)
         arc = services["sentiment_analyzer"].compute_sentiment_arc(conv.turns)
         score, passed, crit, details = services["qa_evaluator"].evaluate(conv.turns)
-        summ, actions = services["summarizer"].generate_summary(conv.turns, reasons, res)
+        summ, actions = services["summarizer"].summarize(
+            conv.conversation_id, conv.turns, reason_labels, churn, res
+        )
 
         analysis = ConversationAnalysisResponse(
             conversation_id=conv.conversation_id,
@@ -315,11 +318,14 @@ with tab_live:
 with tab_qa:
     # Evaluate current conversation in batch
     reasons = services["reason_classifier"].classify(current_conv.turns)
+    reason_labels = [r.label for r in reasons]
     churn = services["churn_detector"].evaluate_churn_risk(current_conv.turns)
     res = services["churn_detector"].evaluate_resolution(current_conv.turns)
     arc = services["sentiment_analyzer"].compute_sentiment_arc(current_conv.turns)
     score, passed, crit, details = services["qa_evaluator"].evaluate(current_conv.turns)
-    summ, actions = services["summarizer"].generate_summary(current_conv.turns, reasons, res)
+    summ, actions = services["summarizer"].summarize(
+        current_conv.conversation_id, current_conv.turns, reason_labels, churn, res
+    )
 
     # Top KPI Row
     k1, k2, k3, k4 = st.columns(4)
