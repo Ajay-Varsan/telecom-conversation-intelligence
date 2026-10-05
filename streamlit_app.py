@@ -151,7 +151,7 @@ if not services["rollup_manager"].agent_records:
             agent_id=conv.agent_id or "Julia",
             team_id=conv.team_id or "Retention_Team_Alpha",
             concise_summary=summ,
-            primary_reasons=reasons,
+            call_reasons=reasons,
             sentiment_arc=arc,
             resolution=res,
             churn_risk=churn,
@@ -160,7 +160,7 @@ if not services["rollup_manager"].agent_records:
             qa_passed=passed,
             critical_compliance_violation=crit,
             qa_details=details,
-            processing_latency_ms=12.4
+            audit_metadata={"processing_latency_ms": 12.4}
         )
         services["rollup_manager"].record_analysis(analysis)
 
