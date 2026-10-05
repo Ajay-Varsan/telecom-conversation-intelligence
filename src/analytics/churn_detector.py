@@ -1,58 +1,107 @@
+import os
 import re
+import joblib
 from typing import List, Tuple, Optional
 from src.models.schemas import Turn, ChurnRisk, ResolutionStatus, Speaker
 
 
 class ChurnAndResolutionDetector:
-    """Evaluates churn risk probability, competitor triggers, and call resolution status."""
+    """Evaluates churn risk probability, competitor triggers, and call resolution status using trained statistical ML with rule fallback."""
 
     COMPETITORS = ["mint mobile", "t-mobile", "verizon", "at&t", "cricket", "boost mobile", "spectrum"]
 
+    def __init__(self, model_path: str = "models/telecom_churn_model.joblib"):
+        self.ml_pipeline = None
+        self.feature_names = None
+        self.coefficients = None
+        if os.path.exists(model_path):
+            try:
+                artifact = joblib.load(model_path)
+                if isinstance(artifact, dict) and "pipeline" in artifact:
+                    self.ml_pipeline = artifact["pipeline"]
+                    self.feature_names = artifact.get("feature_names")
+                    self.coefficients = artifact.get("coefficients")
+                else:
+                    self.ml_pipeline = artifact
+            except Exception:
+                self.ml_pipeline = None
+
     def evaluate_churn_risk(self, turns: List[Turn]) -> ChurnRisk:
-        risk_score = 0.0
+        if not turns:
+            return ChurnRisk(
+                is_risk=False,
+                risk_score=0.0,
+                risk_level="LOW",
+                drivers=[],
+                competitor_mentioned=None
+            )
+
+        all_text = " ".join(t.text for t in turns).lower()
+        client_turns = [t for t in turns if t.speaker == Speaker.CLIENT]
+        client_text = " ".join(t.text for t in client_turns).strip() if client_turns else all_text
+        lower_client = client_text.lower()
+
         drivers = []
         competitor_found: Optional[str] = None
 
-        all_text = " ".join(t.text for t in turns).lower()
-        client_text = " ".join(t.text for t in turns if t.speaker == Speaker.CLIENT).lower()
-
-        # Check explicit cancellation request
-        if re.search(r"\b(cancel my (mobile )?service|terminate my service|close my account)\b", client_text):
-            risk_score += 0.55
-            drivers.append("Explicit request to cancel service")
-
-        # Check competitor mention
+        # 1. Competitor Identification
         for comp in self.COMPETITORS:
-            if comp in client_text:
-                risk_score += 0.25
+            if comp in lower_client:
                 competitor_found = comp.title()
                 drivers.append(f"Competitor offer mentioned: {competitor_found}")
                 break
 
-        # Check service quality complaints
-        if re.search(r"\b(dropped calls?|poor reception|slow data|spotty coverage|unreliable)\b", client_text):
-            risk_score += 0.20
+        # 2. Key Driver Attribution
+        if re.search(r"\b(cancel|terminat|close my account|disconnect|port out|port my number)\b", lower_client):
+            if "don't want to cancel" not in lower_client and "not looking to cancel" not in lower_client:
+                drivers.append("Explicit request to cancel service")
+
+        if re.search(r"\b(dropped calls?|poor reception|slow data|spotty coverage|unreliable|no signal)\b", lower_client):
             drivers.append("Persistent network connectivity / quality dissatisfaction")
 
-        # Check price complaints
-        if re.search(r"\b(too expensive|can't afford|cheaper)\b", client_text):
-            risk_score += 0.15
+        if re.search(r"\b(too expensive|can't afford|cheaper|bill is high|costly|price increase)\b", lower_client):
             drivers.append("Service affordability / cost complaints")
 
-        # Check customer acceptance of retention offer (mitigating factor)
         accepted_retention = False
-        if re.search(r"\b(i'll take the offer|sounds good\. i'll take|switch me over to that plan|that sounds great)\b", client_text):
+        if re.search(r"\b(i'll take the offer|take that offer|sounds good\. i'll take|switch me over to that plan|that sounds great|i will stay|i'll stay|keep my service)\b", lower_client):
             accepted_retention = True
-            risk_score = max(0.15, risk_score - 0.45)
             drivers.append("Customer tentatively accepted retention offer / plan adjustment")
 
-        # Check final confirmed cancellation (amplifying factor)
         if re.search(r"\b(go ahead and cancel|i've canceled your service|process the cancellation|cancellation process)\b", all_text) and not accepted_retention:
-            risk_score = min(1.0, risk_score + 0.25)
             drivers.append("Service cancellation processed / confirmed")
 
-        final_score = min(1.0, max(0.0, round(risk_score, 2)))
+        # 3. Probability Estimation (Trained ML Model vs Rule Fallback)
+        final_score = None
+        if self.ml_pipeline is not None:
+            try:
+                ml_prob = float(self.ml_pipeline.predict_proba([client_text])[0][1])
+                if accepted_retention:
+                    final_score = min(0.20, ml_prob)
+                else:
+                    final_score = round(ml_prob, 2)
+            except Exception:
+                final_score = None
 
+        # Fallback to rule-based scoring if ML is unavailable or errored
+        if final_score is None:
+            risk_score = 0.0
+            if re.search(r"\b(cancel my (mobile )?service|terminate my service|close my account)\b", lower_client):
+                risk_score += 0.55
+            if competitor_found:
+                risk_score += 0.25
+            if any("network" in d.lower() for d in drivers):
+                risk_score += 0.20
+            if any("affordability" in d.lower() for d in drivers):
+                risk_score += 0.15
+            if accepted_retention:
+                risk_score = max(0.15, risk_score - 0.45)
+            if any("confirmed" in d.lower() for d in drivers) and not accepted_retention:
+                risk_score = min(1.0, risk_score + 0.25)
+            final_score = min(1.0, max(0.0, round(risk_score, 2)))
+
+        final_score = min(1.0, max(0.0, round(final_score, 2)))
+
+        # Risk level categorization
         if final_score >= 0.75:
             level = "CRITICAL"
         elif final_score >= 0.50:
