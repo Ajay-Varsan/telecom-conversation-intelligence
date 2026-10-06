@@ -178,4 +178,42 @@ def test_masked_pin_and_account_confirmation_suppresses_cpni():
     assert any("COMPETITIVE_REBUTTAL" in a or "RETENTION" in a for a in action_types)
 
 
+def test_mariela_edge_case_cancellation_doubt_transfer():
+    from src.analytics.churn_detector import ChurnAndResolutionDetector
+    from src.analytics.sentiment_analyzer import SentimentAnalyzer
+
+    turns = [
+        Turn(turn_id=1, speaker=Speaker.AGENT, text="Hello, thank you for calling Union Mobile. My name is Mariela, how can I assist you today?"),
+        Turn(turn_id=2, speaker=Speaker.CLIENT, text="Hi Mariela, I'm calling to cancel my mobile service. I'm not happy with the quality of the service."),
+        Turn(turn_id=3, speaker=Speaker.AGENT, text="Sorry to hear that, Earline. Can you tell me a little bit more about what's been going on?"),
+        Turn(turn_id=4, speaker=Speaker.CLIENT, text="Well, I've been having a lot of dropped calls and slow data speeds. It's really frustrating."),
+        Turn(turn_id=5, speaker=Speaker.AGENT, text="I understand how that can be frustrating. Have you considered upgrading to a new phone?"),
+        Turn(turn_id=6, speaker=Speaker.CLIENT, text="Hmm, that sounds interesting. But I'm not sure if that will solve solve the problem."),
+        Turn(turn_id=7, speaker=Speaker.AGENT, text="I understand. Can you please verify your identity for me?"),
+        Turn(turn_id=8, speaker=Speaker.CLIENT, text="Sure, my account PIN is 1234."),
+        Turn(turn_id=9, speaker=Speaker.AGENT, text="Thank you, Earline. I'm going to go ahead and transfer you to our technical support team."),
+        Turn(turn_id=10, speaker=Speaker.CLIENT, text="Okay, that sounds good. Thank you, Mariela."),
+        Turn(turn_id=11, speaker=Speaker.AGENT, text="You're welcome, Earline. Is there anything else I can assist you with today?"),
+        Turn(turn_id=12, speaker=Speaker.CLIENT, text="No, that's all. Thank you."),
+        Turn(turn_id=13, speaker=Speaker.AGENT, text="Alright then, Earline. Have a great day!")
+    ]
+
+    detector = ChurnAndResolutionDetector()
+    churn = detector.evaluate_churn_risk(turns)
+    assert churn.is_risk is True
+    assert churn.risk_level in ["HIGH", "CRITICAL"]
+    assert churn.risk_score >= 0.70
+    assert "Explicit request to cancel service" in churn.drivers
+    assert "Customer accepted retention offer / plan adjustment / device upgrade" not in churn.drivers
+
+    res = detector.evaluate_resolution(turns)
+    assert res.status == "ESCALATED"
+    assert "Technical Support" in res.explanation
+
+    analyzer = SentimentAnalyzer()
+    arc = analyzer.compute_sentiment_arc(turns)
+    assert arc.trajectory != "positive_recovery"
+
+
+
 

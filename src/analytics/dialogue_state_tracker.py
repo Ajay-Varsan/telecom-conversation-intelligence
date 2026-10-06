@@ -58,44 +58,47 @@ class DialogueStateTracker:
             speaker = t.speaker
 
             # 1. Track Authentication / CPNI State
-            if not state.is_authenticated:
-                # Check if agent requested PIN/verification
-                if speaker == Speaker.AGENT and any(k in text for k in [
-                    "pin", "verify", "verification", "security code", "social security", "last 4", "billing address"
-                ]):
-                    agent_requested_pin = True
+            # Check if agent requested PIN/verification
+            if speaker == Speaker.AGENT and any(k in text for k in [
+                "pin", "verify", "verification", "security code", "social security", "last 4", "billing address", "account information"
+            ]):
+                agent_requested_pin = True
 
-                # Direct pin/verification language or masked PIN tokens
-                has_direct_pin = any(k in text for k in [
-                    "pin is", "my pin", "4 digits", "verify your account", "security pin",
-                    "pin number is", "account pin"
-                ])
-                has_masked_pin = bool(re.search(r"(\*{3,}|\[redacted\]|\[pin\])", text))
-                has_numeric_pin = bool(re.search(r"\b\d{4,6}\b", text)) and ("pin" in text or agent_requested_pin)
+            # Direct secret PIN provided by client
+            has_direct_pin = any(k in text for k in [
+                "pin is", "my pin", "4 digits", "security pin", "pin number is", "account pin"
+            ])
+            has_masked_pin = bool(re.search(r"(\*{3,}|\[redacted\]|\[pin\])", text))
+            has_numeric_pin = bool(re.search(r"\b\d{4,6}\b", text)) and "pin" in text
 
-                # Client responding to PIN request
-                if speaker == Speaker.CLIENT and (
-                    has_direct_pin
-                    or has_masked_pin
-                    or has_numeric_pin
-                    or (agent_requested_pin and any(k in text for k in ["sure, it's", "sure it's", "it is", "it's", "here you go"]))
-                ):
-                    state.is_authenticated = True
-                    state.auth_turn_id = t.turn_id
+            # Client responding with explicit secret PIN
+            if speaker == Speaker.CLIENT and (has_direct_pin or has_masked_pin or has_numeric_pin):
+                state.is_authenticated = True
+                state.auth_turn_id = t.turn_id
 
-                # Agent account lookup confirmations
-                elif speaker == Speaker.AGENT and any(k in text for k in [
-                    "located your account", "pulled up your account", "pulling up your account",
-                    "looking at your account", "found your account", "currently on our",
-                    "thank you for verifying", "got your account up", "confirmed your account",
-                    "confirm your account", "verified your account", "verify your account",
-                    "account is verified", "account has been verified", "account is confirmed",
-                    "thank you for confirming", "thank you for providing that", "thanks for verifying",
-                    "thanks for confirming", "authenticated your account", "access your account",
-                    "got you verified", "into your account", "confirmed your details"
-                ]):
-                    state.is_authenticated = True
-                    state.auth_turn_id = t.turn_id
+            # Agent account lookup confirmations (past tense / successful lookup)
+            elif speaker == Speaker.AGENT and any(k in text for k in [
+                "located your account", "pulled up your account", "pulling up your account",
+                "looking at your account", "found your account", "currently on our",
+                "thank you for verifying", "got your account up", "confirmed your account",
+                "verified your account", "account is verified", "account has been verified",
+                "account is confirmed", "thank you for confirming", "thank you for providing that",
+                "thanks for verifying", "thanks for confirming", "authenticated your account",
+                "access your account", "got you verified", "into your account", "confirmed your details",
+                "able to verify"
+            ]):
+                state.is_authenticated = True
+                state.auth_turn_id = t.turn_id
+
+            # Agent explicitly reports failure to find or authenticate account
+            if speaker == Speaker.AGENT and any(k in text for k in [
+                "unable to locate", "trouble locating", "having trouble locating",
+                "cannot locate", "can't locate", "could not locate", "unable to verify",
+                "unable to find your account", "can't find your account", "cannot find your account",
+                "invalid pin", "unable to authenticate"
+            ]):
+                state.is_authenticated = False
+                state.auth_turn_id = None
 
             # 2. Track Primary Intent
             if speaker == Speaker.CLIENT:

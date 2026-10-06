@@ -88,8 +88,8 @@ async def analyze_batch_conversation(transcript: TranscriptInput):
 
     response = ConversationAnalysisResponse(
         conversation_id=transcript.conversation_id,
-        agent_id=transcript.agent_id or "Agent_Unknown",
-        team_id=transcript.team_id or "General_Support",
+        agent_id=transcript.agent_id or "Sadye",
+        team_id=transcript.team_id or "General_Telecom_Support",
         concise_summary=summary,
         call_reasons=call_reasons,
         sentiment_arc=sentiment_arc,

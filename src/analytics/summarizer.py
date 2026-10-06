@@ -44,6 +44,9 @@ class ConversationSummarizer:
 
         if "escalate" in all_agent_text or "engineering team" in all_agent_text:
             actions_taken.append("escalated network ticket to engineering")
+        elif "transfer you to" in all_agent_text or "transfer to our" in all_agent_text:
+            queue = "technical support" if "technical support" in all_agent_text else ("cancellation department" if "cancellation department" in all_agent_text else "specialized support")
+            actions_taken.append(f"transferred caller to {queue}")
 
         if "cancel your service" in all_agent_text and "go ahead" in all_agent_text:
             actions_taken.append("processed service termination workflow")
@@ -67,8 +70,11 @@ class ConversationSummarizer:
         if "refund" in all_agent_text or "process a refund" in all_agent_text:
             follow_ups.append("Execute billing credit / prorated refund to customer's original payment method within 3 business days.")
 
-        if resolution.status == "ESCALATED" or "engineering team" in all_agent_text:
-            follow_ups.append("Track Engineering Tier-2 Ticket for localized cell tower congestion and notify customer via SMS.")
+        if resolution.status == "ESCALATED":
+            if "technical support" in all_agent_text:
+                follow_ups.append("Monitor Technical Support warm-transfer queue to ensure call completion and customer signal resolution.")
+            else:
+                follow_ups.append("Track Engineering Tier-2 Ticket for localized cell tower congestion and notify customer via SMS.")
 
         if resolution.status == "UNRESOLVED" or "unable to verify" in all_agent_text:
             follow_ups.append("Initiate proactive supervisor callback with CPNI two-factor identity verification link.")

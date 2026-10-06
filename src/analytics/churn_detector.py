@@ -37,7 +37,9 @@ class ChurnAndResolutionDetector:
             )
 
         all_text = " ".join(t.text for t in turns).lower()
+        agent_turns = [t for t in turns if t.speaker == Speaker.AGENT]
         client_turns = [t for t in turns if t.speaker == Speaker.CLIENT]
+        agent_text = " ".join(t.text for t in agent_turns).lower()
         client_text = " ".join(t.text for t in client_turns).strip() if client_turns else all_text
         lower_client = client_text.lower()
 
@@ -52,7 +54,8 @@ class ChurnAndResolutionDetector:
                 break
 
         # 2. Key Driver Attribution
-        if re.search(r"\b(cancel|terminat|close my account|disconnect|port out|port my number)\b", lower_client):
+        has_cancel_intent = bool(re.search(r"\b(cancel|terminat\w*|close my (account|service)|disconnect|port out|port my number)\b", lower_client))
+        if has_cancel_intent:
             if "don't want to cancel" not in lower_client and "not looking to cancel" not in lower_client:
                 drivers.append("Explicit request to cancel service")
 
@@ -62,21 +65,74 @@ class ChurnAndResolutionDetector:
         if re.search(r"\b(too expensive|can't afford|cheaper|bill is high|costly|price increase)\b", lower_client):
             drivers.append("Service affordability / cost complaints")
 
-        accepted_retention = False
-        if re.search(r"\b(i'll take the offer|take that offer|sounds good\. i'll take|switch me over to that plan|that sounds great|i will stay|i'll stay|keep my service)\b", lower_client):
-            accepted_retention = True
-            drivers.append("Customer tentatively accepted retention offer / plan adjustment")
+        # 3. Conversational State Analysis: Transfer vs Cancellation vs Genuine Retention
+        agent_transferred = bool(re.search(
+            r"\b(transfer you to|transfer to our (technical support|cancellation|billing|account management)|transfer your call)\b",
+            agent_text
+        ))
 
-        if re.search(r"\b(go ahead and cancel|i've canceled your service|process the cancellation|cancellation process)\b", all_text) and not accepted_retention:
+        customer_doubted_offer = bool(re.search(
+            r"\b(not sure if that will solve|don't know if that will help|not sure that will help|not sure if that will work|doesn't solve|won't solve|still want to cancel|rather just cancel)\b",
+            lower_client
+        ))
+
+        agent_confirmed_cancellation = bool(re.search(
+            r"\b(i've processed the cancellation|processed your cancellation|canceled your (mobile )?service|placed a request to cancel your service|we've canceled your|processed the cancellation request)\b",
+            agent_text
+        )) and not any(k in agent_text for k in ["unable to cancel", "cannot cancel", "can't cancel", "without proper verification", "unable to proceed"])
+
+        explicit_retention_accept = [
+            r"\b(i'll take the offer|take that offer|i will take the offer)\b",
+            r"\b(i think i'd like to take advantage of that|take advantage of that|take advantage of the deal)\b",
+            r"\b(switch me over( to that)?|apply that to (my )?account|go ahead and apply)\b",
+            r"\b(i will stay|i'll stay|keep my service)\b",
+            r"\b(let's go with that plan|sign me up for that|i'll go with the)\b",
+            r"\b(that sounds like a (good|great) deal.*(let's do|sign me|apply))\b"
+        ]
+        customer_explicitly_accepted = any(re.search(p, lower_client) for p in explicit_retention_accept)
+        agent_completed_order = bool(re.search(
+            r"\b(process the order for the (new )?(iphone|phone|device)|placed the order|order has been placed|applied the (discount|promo|credit)|switched your plan to|enrolled you in)\b",
+            agent_text
+        ))
+
+        # True retention: customer accepted or agent finalized order, AND customer did not doubt, AND agent did not transfer or cancel
+        accepted_retention = (customer_explicitly_accepted or agent_completed_order) and not customer_doubted_offer and not agent_transferred and not agent_confirmed_cancellation
+
+        if accepted_retention:
+            drivers.append("Customer accepted retention offer / plan adjustment / device upgrade")
+            if "Explicit request to cancel service" in drivers:
+                drivers.remove("Explicit request to cancel service")
+                drivers.insert(0, "Initial Churn Intent: Explicit request to cancel service (Successfully Mitigated)")
+
+        if agent_confirmed_cancellation:
             drivers.append("Service cancellation processed / confirmed")
 
-        # 3. Probability Estimation (Trained ML Model vs Rule Fallback)
+        if agent_transferred and has_cancel_intent and not accepted_retention:
+            if customer_doubted_offer:
+                drivers.append("Retention proposal declined/doubted ('not sure if that will solve problem')")
+            drivers.append("Customer transferred to specialized support queue without on-call resolution")
+
+        unauthenticated_or_disconnected = bool(re.search(
+            r"\b(unable to verify|cannot cancel your service without|call got disconnected|got disconnected)\b",
+            agent_text
+        )) or "( response" in lower_client
+
+        if unauthenticated_or_disconnected and has_cancel_intent and not accepted_retention and not agent_confirmed_cancellation:
+            drivers.append("Call disconnected / authentication declined prior to cancellation")
+
+        # 4. Probability Estimation (Trained ML Model with Dialogue Outcome Calibration)
         final_score = None
         if self.ml_pipeline is not None:
             try:
                 ml_prob = float(self.ml_pipeline.predict_proba([client_text])[0][1])
-                if accepted_retention:
-                    final_score = min(0.20, ml_prob)
+                if agent_confirmed_cancellation:
+                    final_score = max(0.95, round(ml_prob, 2))
+                elif accepted_retention:
+                    final_score = min(0.20, round(ml_prob * 0.2, 2))
+                elif agent_transferred and has_cancel_intent:
+                    final_score = max(0.72, min(0.88, round(ml_prob, 2)))
+                elif unauthenticated_or_disconnected and has_cancel_intent:
+                    final_score = max(0.80, min(0.95, round(ml_prob, 2)))
                 else:
                     final_score = round(ml_prob, 2)
             except Exception:
@@ -85,7 +141,7 @@ class ChurnAndResolutionDetector:
         # Fallback to rule-based scoring if ML is unavailable or errored
         if final_score is None:
             risk_score = 0.0
-            if re.search(r"\b(cancel my (mobile )?service|terminate my service|close my account)\b", lower_client):
+            if has_cancel_intent:
                 risk_score += 0.55
             if competitor_found:
                 risk_score += 0.25
@@ -95,8 +151,10 @@ class ChurnAndResolutionDetector:
                 risk_score += 0.15
             if accepted_retention:
                 risk_score = max(0.15, risk_score - 0.45)
-            if any("confirmed" in d.lower() for d in drivers) and not accepted_retention:
-                risk_score = min(1.0, risk_score + 0.25)
+            if agent_confirmed_cancellation:
+                risk_score = min(1.0, risk_score + 0.35)
+            if agent_transferred and has_cancel_intent:
+                risk_score = max(0.70, risk_score)
             final_score = min(1.0, max(0.0, round(risk_score, 2)))
 
         final_score = min(1.0, max(0.0, round(final_score, 2)))
@@ -125,38 +183,61 @@ class ChurnAndResolutionDetector:
         if not turns:
             return ResolutionStatus(status="UNRESOLVED", confidence=0.5, explanation="No conversation turns available.")
 
+        all_agent_text = " ".join(t.text for t in turns if t.speaker == Speaker.AGENT).lower()
+        all_client_text = " ".join(t.text for t in turns if t.speaker == Speaker.CLIENT).lower()
         last_turns = turns[-5:]
         last_agent_text = " ".join(t.text for t in last_turns if t.speaker == Speaker.AGENT).lower()
         last_client_text = " ".join(t.text for t in last_turns if t.speaker == Speaker.CLIENT).lower()
-        full_client_text = " ".join(t.text for t in turns if t.speaker == Speaker.CLIENT).lower()
 
-        # Check escalation
-        if re.search(r"\b(escalat\w*|engineering team|supervisor|tier 2)\b", last_agent_text):
+        # 1. Escalation / Departmental Transfer
+        if re.search(r"\b(transfer you to|transfer to our|transfer your call|escalat\w*|engineering team|supervisor|tier 2)\b", all_agent_text):
+            queue = "Technical Support" if "technical support" in all_agent_text else (
+                "Cancellation Department" if "cancellation department" in all_agent_text else (
+                    "Billing / Account Management" if ("billing" in all_agent_text or "account management" in all_agent_text) else "Specialized Support"
+                )
+            )
             return ResolutionStatus(
                 status="ESCALATED",
                 confidence=0.92,
-                explanation="Issue escalated to specialized engineering / supervisor queue for back-office resolution."
+                explanation=f"Customer transferred to {queue} queue; issue in-progress and unfinalized on current call."
             )
 
-        # Check identity verification failure / hangup
-        if re.search(r"\bunable to (verify|proceed with(out)? proper verification|locate your account)\b", last_agent_text):
-            if "( response" in last_client_text or "still on the line" in last_agent_text or "ridiculous" in full_client_text:
-                return ResolutionStatus(
-                    status="UNRESOLVED",
-                    confidence=0.90,
-                    explanation="Call disconnected or unresolved due to customer identification authentication failure."
-                )
+        # 2. Authentication Failure / Refusal
+        if re.search(r"\b(unable to verify|cannot cancel your service without|unable to proceed with(out)? proper verification|unable to locate your account)\b", all_agent_text):
+            return ResolutionStatus(
+                status="UNRESOLVED",
+                confidence=0.92,
+                explanation="Call concluded without account transaction due to customer identity authentication failure."
+            )
 
-        # Check successful completion / closure
-        if re.search(r"\b(process a refund|cancel your service|confirmation email|all set|work something out|take the offer)\b", last_agent_text + " " + last_client_text):
+        # 3. Call Disconnection (unless customer reconnected and finished satisfactorily)
+        is_disconnected = bool(re.search(r"\b(call got disconnected|got disconnected|are you still on the line)\b", all_agent_text)) or "( response" in all_client_text
+        reconnected_and_resolved = bool(re.search(r"\b(all set|mistake on my end|thank you again|no, i'm all set)\b", last_client_text)) and not bool(re.search(r"\b(are you still on the line|call got disconnected)\b", last_agent_text))
+        if is_disconnected and not reconnected_and_resolved:
+            return ResolutionStatus(
+                status="UNRESOLVED",
+                confidence=0.90,
+                explanation="Call disconnected unexpectedly prior to transaction completion."
+            )
+
+        # 4. Confirmed Cancellation Execution
+        if re.search(r"\b(i've processed the cancellation|processed your cancellation|canceled your (mobile )?service|placed a request to cancel your service|we've canceled your|processed the cancellation request)\b", all_agent_text):
+            return ResolutionStatus(
+                status="RESOLVED",
+                confidence=0.95,
+                explanation="Caller's service cancellation request was fully processed and confirmed by the agent."
+            )
+
+        # 5. Confirmed Retention / Upgrade Execution
+        if re.search(r"\b(process the order for the (new )?(iphone|phone|device)|placed the order|order has been placed|applied the (discount|promo|credit)|switched your plan to|enrolled you in)\b", all_agent_text):
             return ResolutionStatus(
                 status="RESOLVED",
                 confidence=0.94,
-                explanation="Caller's primary request (plan change, retention deal, or cancellation workflow) was fully executed."
+                explanation="Retention offer or plan adjustment was successfully processed and confirmed on account."
             )
 
-        # Check standard resolution signoffs
-        if re.search(r"\b(no, that's all|thanks for your help|thank you\. goodbye)\b", last_client_text):
+        # 6. Standard Satisfactory Inquiry Closure
+        if re.search(r"\b(no, that's all|thanks for your help|thank you\. goodbye|all set)\b", last_client_text):
             return ResolutionStatus(
                 status="RESOLVED",
                 confidence=0.88,

@@ -2,7 +2,28 @@ import streamlit as st
 import time
 import random
 import requests
+import sys
+import importlib
 from typing import List, Optional, Dict, Any
+
+# Ensure running Streamlit processes reload modified source modules
+for _mod in [
+    "src.models.schemas",
+    "src.data.corpus_loader",
+    "src.analytics.sentiment_analyzer",
+    "src.analytics.reason_classifier",
+    "src.analytics.churn_detector",
+    "src.analytics.summarizer",
+    "src.analytics.live_assist",
+    "src.qa.checklist",
+    "src.qa.evaluator",
+    "src.qa.rollups"
+]:
+    if _mod in sys.modules:
+        try:
+            importlib.reload(sys.modules[_mod])
+        except Exception:
+            pass
 
 # Antigravity Microservice Domain Imports
 from src.models.schemas import (
@@ -229,6 +250,13 @@ def get_services():
     }
 
 services = get_services()
+if not hasattr(services.get("loader"), "search_conversations"):
+    st.cache_resource.clear()
+    import src.data.corpus_loader
+    importlib.reload(src.data.corpus_loader)
+    services = get_services()
+    if not hasattr(services.get("loader"), "search_conversations"):
+        services["loader"] = src.data.corpus_loader.CorpusLoader()
 
 if "sample_convs" not in st.session_state:
     st.session_state.sample_convs = services["loader"].load_sample_conversations(limit_convs=15, shuffle=True)
@@ -259,18 +287,18 @@ def sync_sample_rollups(conv_list):
 
         analysis = ConversationAnalysisResponse(
             conversation_id=conv.conversation_id,
-            agent_id=conv.agent_id or "Julia",
+            agent_id=conv.agent_id or "Sadye",
             team_id=conv.team_id or "General_Telecom_Support",
             concise_summary=summ,
-            call_reasons=reasons,
-            sentiment_arc=arc,
-            resolution=res,
-            churn_risk=churn,
+            call_reasons=[r.model_dump() if hasattr(r, "model_dump") else r for r in reasons],
+            sentiment_arc=arc.model_dump() if hasattr(arc, "model_dump") else arc,
+            resolution=res.model_dump() if hasattr(res, "model_dump") else res,
+            churn_risk=churn.model_dump() if hasattr(churn, "model_dump") else churn,
             follow_up_actions=actions,
             qa_score=score,
             qa_passed=passed,
             critical_compliance_violation=crit,
-            qa_details=details,
+            qa_details=[d.model_dump() if hasattr(d, "model_dump") else d for d in details],
             audit_metadata={"processing_latency_ms": 12.4}
         )
         services["rollup_manager"].record_analysis(analysis)
@@ -296,32 +324,84 @@ with st.sidebar:
     st.divider()
 
 # --- TOP APP HEADER & CORPUS CONTROLS ---
-col_logo, col_refresh = st.columns([4, 1])
-with col_logo:
-    st.title("⚡ Telecom Conversation Intelligence")
-    st.caption("100% Automated QA, Live Agent Assist & Supervisor Analytics (Streamlit Edition)")
+st.title("⚡ Telecom Conversation Intelligence")
+st.caption("100% Automated QA, Live Agent Assist & Supervisor Analytics (Streamlit Edition)")
+
+with st.form(key="corpus_search_form", border=False):
+    col_search, col_search_btn, col_refresh = st.columns([3.5, 0.8, 1.2])
+
+    with col_search:
+        search_query = st.text_input(
+            "🔍 Search Corpus (Agent name, Customer, Phrase, or Conversation ID):",
+            placeholder="Type name (e.g. 'Heath', 'Arturo', 'Ami', 'Magnolia') or phrase (e.g. 'rural area') or ID...",
+            key="corpus_search_query"
+        )
+
+    with col_search_btn:
+        st.write("")
+        st.write("")
+        search_clicked = st.form_submit_button("🔎 Search", use_container_width=True)
+
+    with col_refresh:
+        st.write("")
+        st.write("")
+        refresh_clicked = st.form_submit_button("🔄 Reset / Random", use_container_width=True)
+
+# Handle Search execution (both Enter key and 🔎 Search button submit this form)
+if search_clicked:
+    if search_query.strip():
+        loader = services.get("loader")
+        if not hasattr(loader, "search_conversations"):
+            import src.data.corpus_loader
+            importlib.reload(src.data.corpus_loader)
+            loader = src.data.corpus_loader.CorpusLoader()
+            services["loader"] = loader
+        matches = loader.search_conversations(search_query.strip(), limit=15)
+        if matches:
+            st.session_state.sample_convs = matches
+            st.session_state.current_conv_idx = 0
+            st.session_state.live_turn_idx = 0
+            st.session_state.live_history = []
+            st.session_state.live_responses = []
+            for k in list(st.session_state.keys()):
+                if k.startswith("analysis_"):
+                    del st.session_state[k]
+            sync_sample_rollups(matches)
+            st.success(f"🎯 Found {len(matches)} conversation(s) matching '{search_query.strip()}'!")
+        else:
+            st.warning(f"⚠️ No conversations found matching '{search_query.strip()}'. Showing current batch.")
+    else:
+        st.info("💡 Please type an agent name (e.g. 'Heath'), customer name, phrase, or ID and press Enter or Search.")
+
+# Handle Reset / Random sample
+if refresh_clicked:
+    loader = services.get("loader")
+    if not hasattr(loader, "search_conversations"):
+        import src.data.corpus_loader
+        importlib.reload(src.data.corpus_loader)
+        loader = src.data.corpus_loader.CorpusLoader()
+        services["loader"] = loader
+    st.session_state.sample_convs = loader.load_sample_conversations(limit_convs=15, shuffle=True)
+    for k in list(st.session_state.keys()):
+        if k.startswith("analysis_"):
+            del st.session_state[k]
+    sync_sample_rollups(st.session_state.sample_convs)
+    st.session_state.current_conv_idx = 0
+    st.session_state.live_turn_idx = 0
+    st.session_state.live_history = []
+    st.session_state.live_responses = []
+    st.rerun()
 
 # Corpus Selector Dropdown
 conv_options = {
-    f"[{c.team_id}] Agent: {c.agent_id} ({len(c.turns)} turns) - {c.turns[1].text[:45] if len(c.turns) > 1 else c.turns[0].text[:45]}...": idx
+    f"[{c.team_id}] Agent: {c.agent_id} ({len(c.turns)} turns) - ID: {c.conversation_id[:8]}... - {c.turns[1].text[:38] if len(c.turns) > 1 else c.turns[0].text[:38]}...": idx
     for idx, c in enumerate(st.session_state.sample_convs)
 }
-
-with col_refresh:
-    st.write("")
-    if st.button("🔄 Refresh Corpus", use_container_width=True):
-        st.session_state.sample_convs = services["loader"].load_sample_conversations(limit_convs=15, shuffle=True)
-        sync_sample_rollups(st.session_state.sample_convs)
-        st.session_state.current_conv_idx = 0
-        st.session_state.live_turn_idx = 0
-        st.session_state.live_history = []
-        st.session_state.live_responses = []
-        st.rerun()
 
 selected_conv_label = st.selectbox(
     "Select Call from Telecom Corpus (8,300+ Conversations)",
     options=list(conv_options.keys()),
-    index=st.session_state.current_conv_idx
+    index=min(st.session_state.current_conv_idx, len(conv_options) - 1)
 )
 
 new_conv_idx = conv_options[selected_conv_label]
@@ -452,29 +532,51 @@ with tab_live:
 # TAB 2: POST-CALL & GROUNDED QA
 # ==============================================================================
 with tab_qa:
-    # Evaluate current conversation via FastAPI REST Microservice (with safe fallback)
-    analysis = services["fastapi_client"].analyze_batch(current_conv)
-    if analysis is not None:
-        reasons = analysis.call_reasons
-        churn = analysis.churn_risk
-        res = analysis.resolution
-        arc = analysis.sentiment_arc
-        score = analysis.qa_score
-        passed = analysis.qa_passed
-        crit = analysis.critical_compliance_violation
-        details = analysis.qa_details
-        summ = analysis.concise_summary
-        actions = analysis.follow_up_actions
+    # Evaluate current conversation via FastAPI REST Microservice (cached in session state)
+    analysis_cache_key = f"analysis_{current_conv.conversation_id}"
+    if analysis_cache_key in st.session_state:
+        analysis = st.session_state[analysis_cache_key]
     else:
-        reasons = services["reason_classifier"].classify(current_conv.turns)
-        reason_labels = [r.label for r in reasons]
-        churn = services["churn_detector"].evaluate_churn_risk(current_conv.turns)
-        res = services["churn_detector"].evaluate_resolution(current_conv.turns)
-        arc = services["sentiment_analyzer"].compute_sentiment_arc(current_conv.turns)
-        score, passed, crit, details = services["qa_evaluator"].evaluate(current_conv.turns)
-        summ, actions = services["summarizer"].summarize(
-            current_conv.conversation_id, current_conv.turns, reason_labels, churn, res
-        )
+        analysis = services["fastapi_client"].analyze_batch(current_conv)
+        if analysis is None:
+            reasons = services["reason_classifier"].classify(current_conv.turns)
+            reason_labels = [r.label for r in reasons]
+            churn = services["churn_detector"].evaluate_churn_risk(current_conv.turns)
+            res = services["churn_detector"].evaluate_resolution(current_conv.turns)
+            arc = services["sentiment_analyzer"].compute_sentiment_arc(current_conv.turns)
+            score, passed, crit, details = services["qa_evaluator"].evaluate(current_conv.turns)
+            summ, actions = services["summarizer"].summarize(
+                current_conv.conversation_id, current_conv.turns, reason_labels, churn, res
+            )
+            analysis = ConversationAnalysisResponse(
+                conversation_id=current_conv.conversation_id,
+                agent_id=current_conv.agent_id or "Sadye",
+                team_id=current_conv.team_id or "General_Telecom_Support",
+                concise_summary=summ,
+                call_reasons=[r.model_dump() if hasattr(r, "model_dump") else r for r in reasons],
+                sentiment_arc=arc.model_dump() if hasattr(arc, "model_dump") else arc,
+                resolution=res.model_dump() if hasattr(res, "model_dump") else res,
+                churn_risk=churn.model_dump() if hasattr(churn, "model_dump") else churn,
+                follow_up_actions=actions,
+                qa_score=score,
+                qa_passed=passed,
+                critical_compliance_violation=crit,
+                qa_details=[d.model_dump() if hasattr(d, "model_dump") else d for d in details],
+                audit_metadata={"processing_latency_ms": 12.4}
+            )
+            services["rollup_manager"].record_analysis(analysis)
+        st.session_state[analysis_cache_key] = analysis
+
+    reasons = analysis.call_reasons
+    churn = analysis.churn_risk
+    res = analysis.resolution
+    arc = analysis.sentiment_arc
+    score = analysis.qa_score
+    passed = analysis.qa_passed
+    crit = analysis.critical_compliance_violation
+    details = analysis.qa_details
+    summ = analysis.concise_summary
+    actions = analysis.follow_up_actions
 
     # Top KPI Row (Responsive Cards — No Truncation)
     res_display_map = {

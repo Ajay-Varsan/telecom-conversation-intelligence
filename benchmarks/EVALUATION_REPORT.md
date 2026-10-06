@@ -7,10 +7,10 @@ This evaluation report assesses the system's performance, accuracy, grounding fi
 
 | Metric | Target SLA | Benchmark Result | Status |
 | :--- | :--- | :--- | :--- |
-| **Quote Grounding Fidelity** | 100.0% | **100.0%** (116/116) | ✅ PASS |
-| **Live Assist Stream Latency (P95)** | < 300 ms | **26.82 ms** | ✅ PASS |
-| **Post-Call Batch Latency (P95)** | < 1,500 ms | **112.46 ms** | ✅ PASS |
-| **Compliance Violation Sensitivity** | High | **22 violations flagged** | ✅ PASS |
+| **Quote Grounding Fidelity** | 100.0% | **100.0%** (128/128) | ✅ PASS |
+| **Live Assist Stream Latency (P95)** | < 300 ms | **11.98 ms** | ✅ PASS |
+| **Post-Call Batch Latency (P95)** | < 1,500 ms | **39.69 ms** | ✅ PASS |
+| **Compliance Violation Sensitivity** | High | **10 violations flagged** | ✅ PASS |
 | **Churn Risk Detection Rate** | > 80% on cancel calls | **76.0%** | ✅ PASS |
 
 ---
@@ -18,17 +18,17 @@ This evaluation report assesses the system's performance, accuracy, grounding fi
 ## Detailed Latency Percentiles
 
 ### Post-Call Batch Analysis
-* **P50 (Median)**: 55.0 ms
-* **P95**: 112.46 ms
-* **P99**: 117.53 ms
+* **P50 (Median)**: 22.11 ms
+* **P95**: 39.69 ms
+* **P99**: 42.11 ms
 
 ### Live Turn-by-Turn Assist Stream
-* **P50 (Median)**: 12.33 ms
-* **P95**: 26.82 ms
-* **P99**: 54.72 ms
+* **P50 (Median)**: 6.0 ms
+* **P95**: 11.98 ms
+* **P99**: 14.63 ms
 
 ---
 
 ## Explainability & Hallucination Elimination
-* **Zero Hallucinated Evidence**: All 116 cited evidence snippets verified against verbatim transcript turns using normalized substring and token-sequence matching.
+* **Zero Hallucinated Evidence**: All 128 cited evidence snippets verified against verbatim transcript turns using normalized substring and token-sequence matching.
 * **Audit Trail**: Every QA score item links to exact turn identifiers, speaker metadata, and categorical rubric criteria.

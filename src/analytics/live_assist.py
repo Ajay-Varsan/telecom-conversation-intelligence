@@ -128,13 +128,23 @@ class LiveAssistEngine:
         if current.speaker == Speaker.CLIENT:
             # Check 1: Client wants to cancel or is unverified in a cancellation call (MANDATORY GATE)
             if is_cancellation_active and not state.is_authenticated:
-                recommended_actions.append(LiveActionRecommendation(
-                    action_type="VERIFICATION_REQUIRED",
-                    title="Execute Identity Authentication (CPNI)",
-                    recommended_script="I understand your request and will be glad to assist. First, for your account security, could you please verify your account PIN or the last 4 digits of your card?",
-                    urgency="critical",
-                    trigger_reason="Federal CPNI Requirement: Identity verification must precede account cancellation."
-                ))
+                # If client just submitted unverified account info or phone number
+                if any(k in curr_text for k in ["account number", "phone number", "my number is", "account is"]) or bool(re.search(r"\b\d{7,10}\b", curr_text)):
+                    recommended_actions.append(LiveActionRecommendation(
+                        action_type="VERIFY_SUBMITTED_CREDENTIALS",
+                        title="Validate Account Credentials (CPNI Gate)",
+                        recommended_script="Look up account with provided credentials. If unlocated, do NOT alter or cancel services; request billing zip code or transfer to Account Management.",
+                        urgency="high",
+                        trigger_reason="Customer submitted credentials; identity lookup must be verified in database before account actions."
+                    ))
+                else:
+                    recommended_actions.append(LiveActionRecommendation(
+                        action_type="VERIFICATION_REQUIRED",
+                        title="Execute Identity Authentication (CPNI)",
+                        recommended_script="I understand your request and will be glad to assist. First, for your account security, could you please verify your account PIN or the last 4 digits of your card?",
+                        urgency="critical",
+                        trigger_reason="Federal CPNI Requirement: Identity verification must precede account cancellation."
+                    ))
 
             # Check 2: Client accepted offer (only if authenticated)
             elif state.retention_accepted or "take the offer" in curr_text or "sounds good" in curr_text:

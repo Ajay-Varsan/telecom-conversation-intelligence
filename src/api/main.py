@@ -1,8 +1,7 @@
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+
 from src.api.routes_analyze import router as analyze_router, corpus_loader, analyze_batch_conversation
 from src.api.routes_qa import router as qa_router
 from src.api.routes_health import router as health_router
@@ -42,24 +41,25 @@ app.include_router(analyze_router)
 app.include_router(qa_router)
 app.include_router(health_router)
 
-# Mount static files directory for web dashboard
-static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
-if os.path.exists(static_dir):
-    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+from fastapi.responses import RedirectResponse
 
 
 @app.get("/")
 @app.get("/dashboard")
-async def serve_dashboard():
-    """Serves the interactive supervisor & agent dashboard."""
-    index_file = os.path.join(static_dir, "index.html")
-    if os.path.exists(index_file):
-        return FileResponse(index_file)
+async def redirect_to_streamlit():
+    """Redirects web browser requests directly to the primary Streamlit Dashboard."""
+    return RedirectResponse(url="http://localhost:8501", status_code=307)
+
+
+@app.get("/api")
+async def api_info():
+    """Headless REST API microservice gateway metadata."""
     return {
         "service": "Telecom Conversation Analytics Microservice",
-        "status": "Running",
+        "status": "Active",
         "docs_url": "/docs",
-        "health_url": "/health"
+        "health_url": "/health",
+        "primary_dashboard": "http://localhost:8501"
     }
 
 

@@ -11,14 +11,24 @@ class RollupManager:
     """Computes and tracks agent-level scorecards and supervisor team-level rollups."""
 
     def __init__(self):
+        # Key: conv_id -> ConversationAnalysisResponse
+        self.analyses_by_id: Dict[str, ConversationAnalysisResponse] = {}
         # Key: agent_id -> list of ConversationAnalysisResponse
         self.agent_records: Dict[str, List[ConversationAnalysisResponse]] = defaultdict(list)
         # Key: team_id -> list of ConversationAnalysisResponse
         self.team_records: Dict[str, List[ConversationAnalysisResponse]] = defaultdict(list)
 
     def record_analysis(self, analysis: ConversationAnalysisResponse):
-        self.agent_records[analysis.agent_id].append(analysis)
-        self.team_records[analysis.team_id].append(analysis)
+        # Deduplicate by conversation_id to avoid inflating counts on UI reruns
+        self.analyses_by_id[analysis.conversation_id] = analysis
+        self._rebuild_indices()
+
+    def _rebuild_indices(self):
+        self.agent_records = defaultdict(list)
+        self.team_records = defaultdict(list)
+        for analysis in self.analyses_by_id.values():
+            self.agent_records[analysis.agent_id].append(analysis)
+            self.team_records[analysis.team_id].append(analysis)
 
     def get_agent_scorecard(self, agent_id: str) -> AgentScorecard:
         records = self.agent_records.get(agent_id, [])
@@ -92,16 +102,27 @@ class RollupManager:
         passed_calls = sum(1 for r in records if not r.critical_compliance_violation)
         compliance_pass_rate = round((passed_calls / total_calls) * 100.0, 1)
 
-        # Churn containment: calls with churn risk that did not end in UNRESOLVED or cancellation
-        churn_risk_calls = [r for r in records if r.churn_risk.is_risk]
-        contained_calls = [
-            r for r in churn_risk_calls
-            if r.resolution.status == "RESOLVED" and "take the offer" in str(r.concise_summary).lower()
+        # Churn containment: calls with churn risk that did not end in cancellation / account termination
+        churn_risk_calls = [
+            r for r in records
+            if r.churn_risk.is_risk or any("cancel" in d.lower() or "competitor" in d.lower() for d in r.churn_risk.drivers)
         ]
-        containment_rate = (
-            round((len(contained_calls) / len(churn_risk_calls)) * 100.0, 1)
-            if churn_risk_calls else 100.0
-        )
+        if churn_risk_calls:
+            contained_calls = [
+                r for r in churn_risk_calls
+                if (
+                    "Customer tentatively accepted retention offer / plan adjustment" in r.churn_risk.drivers
+                    or (
+                        r.resolution.status == "RESOLVED"
+                        and "Service cancellation processed / confirmed" not in r.churn_risk.drivers
+                        and "service termination workflow" not in str(r.concise_summary).lower()
+                    )
+                    or (r.churn_risk.risk_score < 0.50 and r.resolution.status != "UNRESOLVED")
+                )
+            ]
+            containment_rate = round((len(contained_calls) / len(churn_risk_calls)) * 100.0, 1)
+        else:
+            containment_rate = 100.0
 
         # Item-by-item pass rate breakdown
         item_pass_counts = defaultdict(int)

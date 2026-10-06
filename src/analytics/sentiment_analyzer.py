@@ -83,6 +83,21 @@ class SentimentAnalyzer:
             return 0.0
         lower = text.lower()
 
+        # Check standard conversational closing courtesy / transfer agreement:
+        clean = text.lower().replace("'", "")
+        clean = " ".join(re.sub(r"[^a-z0-9\s]", " ", clean).split())
+        has_strong_sentiment = any(w in clean for w in ["great", "helpful", "wonderful", "excellent", "awesome", "deal", "iphone", "plan", "appreciate"]) or len(clean.split()) > 7
+        if not has_strong_sentiment:
+            courtesies = [
+                "no thats all", "thats all", "that is all", "no that is all",
+                "no thanks", "no thank you", "thanks for your help", "thank you for your help",
+                "okay thank you", "okay thanks", "thanks bye", "bye", "goodbye",
+                "all set thank you", "all set thanks", "no im all set", "thank you have a great day",
+                "thank you", "thanks"
+            ]
+            if any(clean == c or clean.startswith(c) for c in courtesies):
+                return 0.05
+
         # Check explicit emotion tag in synthetic transcripts e.g. "(frustrated)"
         base_bias = 0.0
         if "(frustrated)" in lower or "(angry)" in lower:
@@ -162,8 +177,11 @@ class SentimentAnalyzer:
 
         # Contextual relationship state overrides
         is_canceled = any(k in all_text for k in ["placed a request to cancel", "i've canceled your service", "cancel your service", "just cancel it", "process the cancellation"])
-        is_upgraded = any(k in all_client_text for k in ["switch me over to the premium", "take the offer", "switch me over to that plan", "sounds like a good deal"])
+        is_upgraded = any(k in all_client_text for k in ["switch me over to the premium", "take the offer", "switch me over to that plan", "sounds like a good deal", "take advantage of that", "take advantage of the", "all set with the new"]) or any(k in all_text for k in ["process the order for the new iphone", "order for the new iphone and line"])
         is_switching_competitor = any(comp in all_client_text for comp in ["mint mobile", "t-mobile", "verizon", "at&t"]) and any(k in all_client_text for k in ["cancel", "switch", "better offer"])
+
+        is_transferred = any(k in all_text for k in ["transfer you to", "transfer to our", "transfer your call"])
+        is_canceling = any(k in all_client_text for k in ["cancel my", "cancel the", "terminate", "close my account"])
 
         if is_upgraded:
             status = "Retained / Plan Upgraded"
@@ -176,6 +194,9 @@ class SentimentAnalyzer:
         elif is_canceled and not is_upgraded:
             status = "Churned / Service Cancelled"
             final_score = min(-0.50, base_cumulative - 0.25)
+        elif is_transferred and is_canceling and not is_upgraded:
+            status = "Unresolved / Transferred to Support"
+            final_score = min(-0.25, base_cumulative - 0.15)
         elif base_cumulative < -0.2:
             status = "Dissatisfied / Seeking Cancellation"
             final_score = base_cumulative
@@ -257,16 +278,24 @@ class SentimentAnalyzer:
 
         # Trajectory determination
         delta = end_avg - start_avg
-        if delta >= 0.35 and start_avg < 0:
+        if delta >= 0.35 and start_avg < -0.15 and end_avg > 0.20:
             trajectory = "positive_recovery"
-        elif delta <= -0.35:
+        elif delta <= -0.35 or (start_avg >= -0.15 and end_avg < -0.25):
             trajectory = "negative_escalation"
-        elif start_avg < -0.2 and end_avg < -0.2:
+        elif start_avg < -0.15 and end_avg < -0.15:
             trajectory = "consistently_negative"
-        elif start_avg > 0.2 and end_avg > 0.2:
+        elif start_avg > 0.15 and end_avg > 0.15:
             trajectory = "consistently_positive"
         else:
             trajectory = "neutral"
+
+        # Trajectory Guardrail: If customer intended cancellation and was NOT retained (e.g. cancelled, transferred, or unauthenticated),
+        # polite closing noise must NEVER be classified as positive recovery
+        all_turns_text = " ".join(t.text for t in turns).lower()
+        has_cancel = any(k in all_turns_text for k in ["cancel my", "cancel the", "terminate", "close my account"])
+        is_retained = any(k in all_turns_text for k in ["take the offer", "take advantage of that", "switch me over to the premium", "order for the new iphone and line"])
+        if has_cancel and not is_retained and trajectory == "positive_recovery":
+            trajectory = "neutral" if end_avg >= -0.15 else "consistently_negative"
 
         return SentimentArc(
             start_sentiment=start_avg,
