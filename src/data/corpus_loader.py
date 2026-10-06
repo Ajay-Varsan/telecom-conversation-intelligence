@@ -60,6 +60,14 @@ class CorpusLoader:
                 timestamp=dt if dt else None
             ))
 
+        TEAMS = [
+            "Retention_Team_Alpha",
+            "Billing_Retention_Team_Beta",
+            "Tech_Support_Tier1",
+            "Compliance_Specialists",
+            "General_Telecom_Support"
+        ]
+
         team_map = {
             "Julia": "Retention_Team_Alpha",
             "Justin": "Retention_Team_Alpha",
@@ -70,7 +78,13 @@ class CorpusLoader:
             "Devin": "Retention_Team_Alpha",
             "Vada": "Tech_Support_Tier1"
         }
-        team_id = team_map.get(agent_name, "General_Telecom_Support")
+        if agent_name in team_map:
+            team_id = team_map[agent_name]
+        elif agent_name != "Agent_Unknown":
+            idx = sum(ord(c) for c in agent_name) % len(TEAMS)
+            team_id = TEAMS[idx]
+        else:
+            team_id = "General_Telecom_Support"
 
         return TranscriptInput(
             conversation_id=str(conv_id),

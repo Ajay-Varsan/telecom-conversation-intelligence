@@ -87,59 +87,116 @@ st.markdown("""
 <style>
     /* Dark cyber-telecom theme accents */
     .metric-card {
-        background: #1e293b;
-        border: 1px solid #334155;
-        border-radius: 8px;
-        padding: 1rem;
-        margin-bottom: 0.5rem;
+        background: #111827;
+        border: 1px solid #1f2937;
+        border-radius: 10px;
+        padding: 1.1rem;
+        margin-bottom: 0.6rem;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+    }
+    .kpi-metric-card {
+        background: #111827;
+        border: 1px solid #1f2937;
+        border-radius: 10px;
+        padding: 1rem 1.1rem;
+        min-height: 112px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+        transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+    .kpi-metric-card:hover {
+        border-color: #3b82f6;
+        transform: translateY(-2px);
+    }
+    .kpi-title {
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        color: #94a3b8;
+        text-transform: uppercase;
+    }
+    .kpi-number {
+        font-size: 1.85rem;
+        font-weight: 800;
+        color: #f8fafc;
+        line-height: 1.1;
+    }
+    .kpi-footnote {
+        font-size: 0.75rem;
+        color: #64748b;
+        margin-top: 0.2rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
     .badge-critical {
         background-color: #ef4444;
         color: white;
-        padding: 3px 8px;
-        border-radius: 4px;
-        font-weight: 600;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-weight: 700;
         font-size: 0.8rem;
+        display: inline-block;
+        letter-spacing: 0.02em;
     }
     .badge-warning {
         background-color: #f59e0b;
-        color: black;
-        padding: 3px 8px;
-        border-radius: 4px;
-        font-weight: 600;
+        color: #0f172a;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-weight: 700;
         font-size: 0.8rem;
+        display: inline-block;
+        letter-spacing: 0.02em;
     }
     .badge-success {
         background-color: #10b981;
         color: white;
-        padding: 3px 8px;
-        border-radius: 4px;
-        font-weight: 600;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-weight: 700;
         font-size: 0.8rem;
+        display: inline-block;
+        letter-spacing: 0.02em;
     }
     .badge-neutral {
         background-color: #6366f1;
         color: white;
-        padding: 3px 8px;
-        border-radius: 4px;
+        padding: 4px 10px;
+        border-radius: 6px;
         font-weight: 600;
         font-size: 0.8rem;
+        display: inline-block;
+    }
+    .badge-purple {
+        background-color: #8b5cf6;
+        color: white;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-weight: 600;
+        font-size: 0.8rem;
+        display: inline-block;
     }
     .script-box {
-        background: #0f172a;
+        background: #0b0f19;
         border-left: 3px solid #6366f1;
-        padding: 0.8rem;
-        border-radius: 4px;
+        padding: 0.85rem 1rem;
+        border-radius: 6px;
         font-style: italic;
-        margin-top: 0.4rem;
+        margin-top: 0.5rem;
+        color: #e2e8f0;
+        font-size: 0.9rem;
     }
     .qa-quote {
         background: #1e1b4b;
         border: 1px solid #4338ca;
-        padding: 0.6rem;
-        border-radius: 4px;
+        padding: 0.7rem 0.9rem;
+        border-radius: 6px;
         font-size: 0.85rem;
-        margin-top: 0.4rem;
+        margin-top: 0.5rem;
+        color: #e0e7ff;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -188,9 +245,8 @@ if "live_history" not in st.session_state:
 if "live_responses" not in st.session_state:
     st.session_state.live_responses = []
 
-# Pre-populate rollups with current corpus batch if empty
-if not services["rollup_manager"].agent_records:
-    for conv in st.session_state.sample_convs[:10]:
+def sync_sample_rollups(conv_list):
+    for conv in conv_list:
         reasons = services["reason_classifier"].classify(conv.turns)
         reason_labels = [r.label for r in reasons]
         churn = services["churn_detector"].evaluate_churn_risk(conv.turns)
@@ -204,7 +260,7 @@ if not services["rollup_manager"].agent_records:
         analysis = ConversationAnalysisResponse(
             conversation_id=conv.conversation_id,
             agent_id=conv.agent_id or "Julia",
-            team_id=conv.team_id or "Retention_Team_Alpha",
+            team_id=conv.team_id or "General_Telecom_Support",
             concise_summary=summ,
             call_reasons=reasons,
             sentiment_arc=arc,
@@ -218,6 +274,10 @@ if not services["rollup_manager"].agent_records:
             audit_metadata={"processing_latency_ms": 12.4}
         )
         services["rollup_manager"].record_analysis(analysis)
+
+# Pre-populate rollups with current corpus batch across all 5 teams
+if not services["rollup_manager"].agent_records:
+    sync_sample_rollups(st.session_state.sample_convs)
 
 # --- SIDEBAR: MICROSERVICE ARCHITECTURE BADGE ---
 with st.sidebar:
@@ -251,6 +311,7 @@ with col_refresh:
     st.write("")
     if st.button("🔄 Refresh Corpus", use_container_width=True):
         st.session_state.sample_convs = services["loader"].load_sample_conversations(limit_convs=15, shuffle=True)
+        sync_sample_rollups(st.session_state.sample_convs)
         st.session_state.current_conv_idx = 0
         st.session_state.live_turn_idx = 0
         st.session_state.live_history = []
@@ -415,12 +476,63 @@ with tab_qa:
             current_conv.conversation_id, current_conv.turns, reason_labels, churn, res
         )
 
-    # Top KPI Row
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Agent QA Score", f"{score}/100", delta="PASSED" if passed else "FAILED", delta_color="normal" if passed else "inverse")
-    k2.metric("Resolution Status", res.status)
-    k3.metric("Churn Risk Level", f"{churn.risk_level} ({int(churn.risk_score*100)}%)")
-    k4.metric("Sentiment Trajectory", f"{arc.trajectory} ({arc.start_sentiment} → {arc.end_sentiment})")
+    # Top KPI Row (Responsive Cards — No Truncation)
+    res_display_map = {
+        "RESOLVED": ("Resolved", "badge-success"),
+        "PENDING_CUSTOMER_ACTION": ("Pending Customer", "badge-warning"),
+        "ESCALATED": ("Tier-2 Escalated", "badge-critical"),
+        "UNRESOLVED": ("Unresolved", "badge-critical")
+    }
+    res_label, res_badge_cls = res_display_map.get(res.status, (res.status.replace("_", " ").title(), "badge-neutral"))
+
+    churn_badge_cls = "badge-critical" if churn.risk_level in ["CRITICAL", "HIGH"] else "badge-warning" if churn.risk_level == "MEDIUM" else "badge-success"
+    qa_badge_cls = "badge-success" if passed else "badge-critical"
+
+    arc_display_map = {
+        "positive_recovery": "📈 Positive Recovery",
+        "deteriorating_friction": "📉 Deteriorating Friction",
+        "stable_positive": "✨ Consistently Positive",
+        "stable_negative": "⚠️ Consistently Negative",
+        "stable_neutral": "➡️ Neutral Trajectory"
+    }
+    arc_label = arc_display_map.get(arc.trajectory, f"Arc: {arc.trajectory.replace('_', ' ').title()}")
+
+    col_k1, col_k2, col_k3, col_k4 = st.columns([1, 1.15, 1.15, 1.3])
+    with col_k1:
+        st.markdown(f"""
+        <div class="kpi-metric-card">
+            <div class="kpi-title">AGENT QA SCORE</div>
+            <div class="kpi-number">{score}<small style="font-size:0.9rem; color:#94a3b8;">/100</small></div>
+            <div><span class="{qa_badge_cls}">{"PASSED" if passed else "FAILED"}</span></div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col_k2:
+        st.markdown(f"""
+        <div class="kpi-metric-card">
+            <div class="kpi-title">RESOLUTION STATUS</div>
+            <div style="margin: 0.35rem 0;"><span class="{res_badge_cls}">{res_label}</span></div>
+            <div class="kpi-footnote">{res.explanation[:38]}...</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col_k3:
+        st.markdown(f"""
+        <div class="kpi-metric-card">
+            <div class="kpi-title">CHURN RISK LEVEL</div>
+            <div style="margin: 0.35rem 0;"><span class="{churn_badge_cls}">{churn.risk_level} ({int(churn.risk_score*100)}%)</span></div>
+            <div class="kpi-footnote">{churn.drivers[0][:38] if churn.drivers else "No active risk drivers"}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col_k4:
+        st.markdown(f"""
+        <div class="kpi-metric-card">
+            <div class="kpi-title">SENTIMENT TRAJECTORY</div>
+            <div style="font-size:1.05rem; font-weight:700; color:#f8fafc; margin: 0.35rem 0;">{arc_label}</div>
+            <div class="kpi-footnote">Shift: {arc.start_sentiment:+.2f} → {arc.end_sentiment:+.2f} across call</div>
+        </div>
+        """, unsafe_allow_html=True)
 
     st.divider()
 
@@ -468,12 +580,18 @@ with tab_qa:
 with tab_rollups:
     st.subheader("Supervisor Team Analytics & Automated Coaching")
 
-    team_options = ["Retention_Team_Alpha", "Compliance_Specialists", "Billing_Retention_Team_Beta", "Tech_Support_Tier1"]
+    team_options = [
+        "Retention_Team_Alpha",
+        "Billing_Retention_Team_Beta",
+        "Tech_Support_Tier1",
+        "Compliance_Specialists",
+        "General_Telecom_Support"
+    ]
     selected_team = st.selectbox("Select Supervisor Queue / Team", options=team_options)
 
-    # Query FastAPI REST endpoint for team rollup (with safe fallback)
+    # Query team rollup from rollup_manager (or FastAPI if available)
     rollup = services["fastapi_client"].get_team_rollup(selected_team)
-    if rollup is None:
+    if rollup is None or rollup.total_calls == 0:
         rollup = services["rollup_manager"].get_team_rollup(selected_team)
 
     t1, t2, t3, t4 = st.columns(4)
@@ -491,10 +609,10 @@ with tab_rollups:
         if rollup.agent_rankings:
             table_data = [
                 {
-                    "Rank": f"#{idx+1}",
+                    "Rank": "🥇 #1" if idx == 0 else "🥈 #2" if idx == 1 else "🥉 #3" if idx == 2 else f"#{idx+1}",
                     "Agent": ag.agent_id,
                     "Calls": ag.total_calls_analyzed,
-                    "Avg QA": ag.average_qa_score,
+                    "Avg QA": f"{ag.average_qa_score}%",
                     "Pass Rate": f"{ag.pass_rate}%",
                     "Violations": ag.critical_violation_count,
                     "Personalized Coaching Action": ag.coaching_tips[0] if ag.coaching_tips else "Good standing"
