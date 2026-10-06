@@ -30,13 +30,12 @@ The system employs a dual-engine architecture: a **real-time stream engine** del
 ```mermaid
 flowchart TD
     subgraph Ingestion ["1. Data Ingestion & Gateway Layer"]
-        A1["Telecom Corpus Dataset (8,300+ Multi-Turn Transcripts CSV)"] --> B1["CorpusLoader (Turn Parsing, Dialogue Extraction & Search Index)"]
-        A2["Live Turn Stream Events (REST Payloads / Simulated Audio)"] --> B2["Pydantic v2 Contract Validation (Turn, LiveTurnInput)"]
-        B1 & B2 --> D["FastAPI REST Ingestion Gateway (Port 8000)"]
+        A["Telecom Corpus (8,300+ Multi-Turn Dialogue CSV Dataset)"] --> B["CorpusLoader (Dialogue Parsing, Caching & Search Indexing)"]
+        B --> C["FastAPI Microservice Gateway (Port 8000)"]
     end
 
     subgraph RealTime ["2. Real-Time Live Assist Engine (< 300ms SLA)"]
-        D -->|Live Turn Event| E1["Dialogue State Tracker (DST)"]
+        C -->|POST /analyze/stream-turn (Turn-by-Turn Payload)| E1["Dialogue State Tracker (DST)"]
         E1 --> E2["Turn Polarity Meter & Emotion Nudge"]
         E1 --> E3["CPNI Compliance Guardrail (Masked PIN Detection)"]
         E1 --> E4["Next Best Action (NBA) Generator"]
@@ -44,7 +43,7 @@ flowchart TD
     end
 
     subgraph PostCall ["3. Post-Call Analytics & Grounded QA Engine"]
-        D -->|Call Completed Event| F1["Corpus Normalizer (8,300+ Transcripts)"]
+        C -->|POST /analyze/batch (Full Conversation Payload)| F1["Post-Call Analytics Pipeline"]
         F1 --> F2["Multi-Label Reason Classifier (TF-IDF + OvR ML)"]
         F1 --> F3["Sentiment Arc Analyzer (Start → Mid → End)"]
         F1 --> F4["Churn Risk & Resolution Detector (Calibrated ML)"]

@@ -10,9 +10,8 @@ The system utilizes an asynchronous dual-engine pipeline designed to handle both
 ```mermaid
 flowchart TD
     subgraph Ingestion ["Data Ingestion & Gateway Layer"]
-        A1["Telecom Corpus Dataset (8,300+ Transcripts CSV)"] --> B1["CorpusLoader (Turn Parsing, Dialogue Extraction & Search Index)"]
-        A2["Live Stream Turn Events (REST / Webhook)"] --> B2["Pydantic v2 Contract Validation (Turn, LiveTurnInput)"]
-        B1 & B2 --> C["FastAPI Ingestion Gateway (Port 8000)"]
+        A["Telecom Corpus (8,300+ Multi-Turn Dialogue CSV Dataset)"] --> B["CorpusLoader (Dialogue Parsing, Caching & Search Indexing)"]
+        B --> C["FastAPI Microservice Gateway (Port 8000)"]
     end
 
     subgraph LiveEngine ["Live Assist Stream Engine (Sub-300ms SLA)"]
