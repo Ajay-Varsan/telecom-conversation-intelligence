@@ -1,6 +1,7 @@
-# Large dataset files
-telecom-conversation-corpus/*.csv
+# Large dataset files (715MB full dump exceeds GitHub 100MB limit)
+telecom-conversation-corpus/telecom_200k.csv
 *.csv
+!telecom-conversation-corpus/telecom_corpus_supplimental.csv
 !tests/fixtures/*.csv
 !data/samples/*.csv
 
