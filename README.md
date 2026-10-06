@@ -29,11 +29,10 @@ The system employs a dual-engine architecture: a **real-time stream engine** del
 
 ```mermaid
 flowchart TD
-    subgraph Ingestion ["1. Telephony Ingestion & Gateway Layer"]
-        A1["Telephony Audio / WebRTC Stream"] --> B1["ASR & Diarization Engine"]
-        A2["Omnichannel Web Chat / SMS"] --> B2["Chat Turn Event Stream"]
-        B1 & B2 --> C["Unified Turn Event Bus (Kafka / Redis Streams)"]
-        C --> D["FastAPI Ingestion Gateway (Port 8000)"]
+    subgraph Ingestion ["1. Data Ingestion & Gateway Layer"]
+        A1["Telecom Corpus Dataset (8,300+ Multi-Turn Transcripts CSV)"] --> B1["CorpusLoader (Turn Parsing, Dialogue Extraction & Search Index)"]
+        A2["Live Turn Stream Events (REST Payloads / Simulated Audio)"] --> B2["Pydantic v2 Contract Validation (Turn, LiveTurnInput)"]
+        B1 & B2 --> D["FastAPI REST Ingestion Gateway (Port 8000)"]
     end
 
     subgraph RealTime ["2. Real-Time Live Assist Engine (< 300ms SLA)"]

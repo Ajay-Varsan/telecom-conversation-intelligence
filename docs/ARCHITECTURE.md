@@ -9,10 +9,10 @@ The system utilizes an asynchronous dual-engine pipeline designed to handle both
 
 ```mermaid
 flowchart TD
-    subgraph Ingestion ["Ingestion & Gateway Layer"]
-        A1["Telephony / WebRTC Audio Stream"] --> B1["ASR & Diarization Engine"]
-        A2["Web Chat / Messaging Gateway"] --> B2["Chat Turn Event Stream"]
-        B1 & B2 --> C["Unified Turn Event Bus (Kafka / Redis Streams)"]
+    subgraph Ingestion ["Data Ingestion & Gateway Layer"]
+        A1["Telecom Corpus Dataset (8,300+ Transcripts CSV)"] --> B1["CorpusLoader (Turn Parsing, Dialogue Extraction & Search Index)"]
+        A2["Live Stream Turn Events (REST / Webhook)"] --> B2["Pydantic v2 Contract Validation (Turn, LiveTurnInput)"]
+        B1 & B2 --> C["FastAPI Ingestion Gateway (Port 8000)"]
     end
 
     subgraph LiveEngine ["Live Assist Stream Engine (Sub-300ms SLA)"]
@@ -54,8 +54,8 @@ flowchart TD
 ### 2. Core Components & Responsibilities
 
 #### 2.1 Ingestion & Gateway Layer
-* **Dual Ingestion**: Supports streaming turn payloads via WebSocket / REST (`POST /analyze/stream-turn`) and post-call batch webhooks (`POST /analyze/batch`).
-* **Turn Normalization**: Standardizes disparate telephony vendor formats (Genesys, NICE inContact, Twilio, Amazon Connect) into a typed `Turn` contract with millisecond timestamps, speaker tags (`agent`, `client`), and utterance text.
+* **Corpus & Live Ingestion**: Ingests multi-turn dialogue transcripts from the 8,300+ record telecom dataset CSV via `CorpusLoader`, while accepting streaming turn payloads via REST (`POST /analyze/stream-turn`) and post-call batch analysis (`POST /analyze/batch`).
+* **Turn Normalization**: Standardizes conversational dialogue into typed `Turn` contracts with turn IDs, speaker designations (`agent`, `client`), and utterance text.
 
 #### 2.2 Live Assist Stream Engine
 * **Latency SLA**: **$<$ 300 ms** response budget (median achieved: **0.15 ms**).
