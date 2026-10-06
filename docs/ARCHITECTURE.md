@@ -9,42 +9,42 @@ The system utilizes an asynchronous dual-engine pipeline designed to handle both
 
 ```mermaid
 flowchart TD
-    subgraph Ingestion ["Data Ingestion & Gateway Layer"]
-        A["Telecom Corpus (8,300+ Multi-Turn Dialogue CSV Dataset)"] --> B["CorpusLoader (Dialogue Parsing, Caching & Search Indexing)"]
+    subgraph Ingestion ["1. Data Ingestion & Gateway Layer"]
+        A["Telecom Corpus (8,300+ Dialogue Transcripts CSV)"] --> B["CorpusLoader (Dataset Parsing, Indexing & Caching)"]
         B --> C["FastAPI Microservice Gateway (Port 8000)"]
     end
 
-    subgraph LiveEngine ["Live Assist Stream Engine (Sub-300ms SLA)"]
-        C -->|Live Turn Event| D1["PII / CPNI Sanitizer"]
-        D1 --> D2["Incremental Polarity & Sentiment Tracker"]
-        D2 --> D3["Real-time Rule & Trigger Engine"]
-        D3 --> D4["Next Best Action (NBA) Generator"]
-        D3 --> D5["Immediate Compliance Alert Dispatcher"]
-        D4 & D5 --> D6["Agent Desktop WebSocket Feed"]
+    subgraph RealTime ["2. Real-Time Live Assist Engine (< 300ms SLA)"]
+        C -->|"POST /analyze/stream-turn"| E1["Dialogue State Tracker (DST)"]
+        E1 --> E2["Turn Polarity Meter & Emotion Nudge"]
+        E1 --> E3["CPNI Compliance Guardrail (Masked PIN Detection)"]
+        E1 --> E4["Next Best Action (NBA) Generator"]
+        E4 & E3 --> E5["Live Assist Stream Response"]
     end
 
-    subgraph BatchEngine ["Post-Call Analytics & Grounded QA Engine"]
-        C -->|Call Completed Event| E1["Transcript Normalizer & Aligner"]
-        E1 --> E2["Multi-Label Reason Classifier"]
-        E1 --> E3["Sentiment Arc Analyzer (Start→End)"]
-        E1 --> E4["Churn Risk & Competitor Detector"]
-        E1 --> E5["Executive Summarizer & Follow-Up Engine"]
-        E1 --> E6["Configurable QA Checklist Evaluator"]
-        E6 --> E7["Strict Grounding Guardrail (Quote Verifier)"]
+    subgraph PostCall ["3. Post-Call Analytics & Grounded QA Engine"]
+        C -->|"POST /analyze/batch"| F1["Post-Call Analytics Pipeline"]
+        F1 --> F2["Multi-Label Reason Classifier (TF-IDF + OvR ML)"]
+        F1 --> F3["Sentiment Arc Analyzer (Start to End Trajectory)"]
+        F1 --> F4["Churn Risk & Resolution Detector (Calibrated ML)"]
+        F1 --> F5["Executive Summarizer & Action Generator"]
+        F1 --> F6["QA Checklist Evaluator (6 Criteria Rubric)"]
+        F6 --> F7["Anti-Hallucination Grounding Guardrail"]
     end
 
-    subgraph RollupStorage ["Aggregation & Persistence Layer"]
-        E2 & E3 & E4 & E5 & E7 --> F1["Evaluation Repository (SQLite / PostgreSQL)"]
-        F1 --> F2["Agent Scorecard Aggregator"]
-        F1 --> F3["Team Rollup & Ranking Leaderboard"]
-        F1 --> F4["Prometheus Metrics & Health Exporter"]
+    subgraph Persistence ["4. Rollup & Metrics Warehousing"]
+        F2 & F3 & F4 & F5 & F7 --> G1["Agent Scorecard Aggregator"]
+        G1 --> G2["Team Rollup Manager (5 Telecom Teams)"]
+        G1 --> G3["Prometheus Metrics Exporter (/metrics)"]
+        G1 --> G4["System Health Monitor (/health)"]
     end
 
-    subgraph ClientUI ["Supervisor & QA Interfaces"]
-        D6 & F2 & F3 & F4 --> G1["Interactive Supervisor Dashboard"]
-        G1 --> G2["Call Playback & Grounded Evidence Viewer"]
-        G1 --> G3["Team Quality Heatmaps & Leaderboard"]
-        G1 --> G4["Prometheus Grafana Alerts"]
+    subgraph Presentation ["5. Interactive Streamlit Dashboard (Port 8501)"]
+        E5 & G2 & G4 --> H1["Streamlit Enterprise Dashboard"]
+        H1 --> H2["Tab 1: Live Assist Stream Simulator"]
+        H1 --> H3["Tab 2: Post-Call & Grounded QA Scorecards"]
+        H1 --> H4["Tab 3: Supervisor Team Leaderboards"]
+        H1 --> H5["Tab 4: System Health, Benchmarks & Evals"]
     end
 ```
 
